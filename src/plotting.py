@@ -70,7 +70,7 @@ def plot_spectrum(predictions: np.ndarray, true_DOA: np.ndarray, system_model=No
     plot_root_music_spectrum(roots, predictions, true_DOA, algorithm)
   elif "deepcnn" in algorithm.lower():
     # plot_DeepCNN_spectrum(predictions, true_DOA, roots, algorithm)  # 参数顺序调整
-    plot_DeepCNN_spectrum1(predictions, true_DOA, roots, algorithm, figures)  # 直角坐标系
+    plot_DeepCNN_spectrum1(predictions, true_DOA, roots, algorithm, figures, sample_idx)  # 直角坐标系
   elif "my_transform_model" in algorithm.lower():
     # plot_DeepCNN_spectrum(predictions, true_DOA, roots, algorithm)  # 参数顺序调整
     plot_My_transform_Model_spectrum(predictions, true_DOA, roots, algorithm, figures, sample_idx)  # 直角坐标系
@@ -209,38 +209,45 @@ def plot_My_transform_Model_spectrum(predictions: np.ndarray, true_DOA: np.ndarr
 
     return figures
 
+
 def plot_DeepCNN_spectrum1(predictions: np.ndarray, true_DOA: np.ndarray,
-                           roots: np.ndarray, algorithm: str, figures: dict = None):
+                           roots: np.ndarray, algorithm: str, figures: dict = None, sample_idx: int = 0):
     """
-    在直角坐标系绘制DeepCNN谱图并与MVDR比较
+    在直角坐标系绘制DeepCNN谱图并与MVDR比较（升级版）
+    新增功能：
+    - 支持多样本独立绘图容器
+    - 自动保存标准化谱图
+    - 增强坐标轴和标签一致性
     """
-    # 打印真实DOA
+    # 数据预处理
     unique_true_doa = np.unique(true_DOA)
     print(f"[DeepCNN] True DOAs: {unique_true_doa}")
+
+    # 初始化图形容器
     if figures is None:
         figures = {}
-    # 初始化比较图容器
+    comparison_key = f"comparison_{sample_idx}"
     if comparison_key not in figures:
         figures[comparison_key] = {'fig': None, 'ax': None}
+
     # 创建图形对象
     if figures[comparison_key]["fig"] is None:
         figures[comparison_key]["fig"] = plt.figure(figsize=(10, 6))
         figures[comparison_key]["ax"] = figures[comparison_key]["fig"].add_subplot(111)
     ax = figures[comparison_key]["ax"]
-    predictions_norm=predictions/ np.max(predictions)
 
-
-    # 生成角度坐标
+    # 数据规范化处理
+    predictions_norm = predictions / np.max(predictions)
     angles = np.linspace(-15, 15, 241)
 
-    # 绘制DeepCNN谱线
-    line_cnn, = ax.plot(angles, predictions_norm ,
-                        color='#1f77b4',
+    # 核心绘图逻辑
+    line_cnn, = ax.plot(angles, predictions_norm,
+                        color='#2ca02c',  # 修改颜色以示区分
                         linewidth=2,
                         alpha=0.8,
                         label='DeepCNN Spectrum')
 
-    # 使用改进后的峰值检测函数
+    # 改进版峰值检测
     selected_peaks, peak_angles = detect_top_peaks(
         predictions_norm,
         angles,
@@ -248,72 +255,166 @@ def plot_DeepCNN_spectrum1(predictions: np.ndarray, true_DOA: np.ndarray,
         top_k=2
     )
     print(f"[DeepCNN] Predicted DOAs: {peak_angles}")
-    # 绘制筛选后的峰值点
+
+    # 可视化增强
     for i, idx in enumerate(selected_peaks):
         ax.scatter(
-            angles[idx],  # 峰对应的角度
-            predictions_norm[idx],  # 峰对应的强度值
+            angles[idx],
+            predictions_norm[idx],
             color=line_cnn.get_color(),
-            marker='^',
-            s=100,
-            edgecolor='k',
+            marker='s',  # 改用方形标记
+            s=80,
+            edgecolor='w',
             zorder=5,
-            label='CNN Predictions' if i == 0 else None  # 仅第一个点添加图例
+            label='DeepCNN Predictions' if i == 0 else None
         )
-    # 标记最大的两个值
-    # top_two_indices = np.argsort(predictions_norm)[::-1][:2]
-    # peak_angles = angles[top_two_indices]
-    # for i, p in enumerate(peak_angles):
-    #     ax.scatter(p, predictions_norm[np.argmin(np.abs(angles - p))],
-    #                color=line_cnn.get_color(),
-    #                marker='^',
-    #                s=100,
-    #                edgecolor='k',
-    #                zorder=5,
-    #                label='CNN Predictions' if i == 0 else None)
 
-    # # 标记预测峰值
-    # peaks = argrelextrema(predictions_norm, np.greater)[0]
-    # peak_angles = angles[peaks]  # 将索引转换为角度值
-    # for p in peak_angles[:2]:  # 假设最多两个信号
-    #     ax.scatter(p, predictions_norm[np.argmin(np.abs(angles - p))],
-    #                color=line_cnn.get_color(),
-    #                marker='^',
-    #                s=100,
-    #                edgecolor='k',
-    #                zorder=5,
-    #                label='CNN Predictions' if p == peak_angles[0] else None)
-
-    # if roots is not None:
-    #     print(f"[DeepCNN] Predicted DOAs: {roots}")
-    #     for peak in roots:
-    #         idx = np.abs(angles - peak).argmin()
-    #         ax.scatter(angles[idx], predictions_norm[idx],
-    #                    color=line_cnn.get_color(),
-    #                    marker='^',
-    #                    s=100,
-    #                    edgecolor='k',
-    #                    zorder=5,
-    #                    label='CNN Predictions')
-
-    # 标记真实DOA（只添加一次图例）
+    # 真实DOA标注
     for i, doa in enumerate(np.unique(true_DOA)):
-        ax.axvline(doa, color='#d62728', linestyle='--', linewidth=2,
-                   label='True DOA' if i == 0 else None)
+        ax.axvline(doa, color='#ff7f0e',  # 修改警示色
+                   linestyle=':',  # 修改线型
+                   linewidth=2.5,
+                   label='Ground Truth' if i == 0 else None)
 
-
-
-
-    # 配置坐标轴
-
+    # 布局标准化
     ax.set_xlim(-90, 90)
     ax.set_xticks(np.arange(-90, 91, 30))
-    ax.set_xlabel("Azimuth Angle [deg]", fontsize=12)
-    ax.set_ylabel("Normalized Amplitude", fontsize=12)
+    ax.set_xlabel("Azimuth  Angle [deg]", fontsize=12)
+    ax.set_ylabel("Normalized  Power", fontsize=12)  # 修改坐标轴标签
     ax.grid(True, alpha=0.4)
+    ax.set_ylim(0, 1.2)
 
+    # 图例和保存逻辑
+    if figures[comparison_key]["fig"] is not None:
+        handles, labels = ax.get_legend_handles_labels()
+        unique_labels = dict(zip(labels, handles))
+        ax.legend(unique_labels.values(), unique_labels.keys(),
+                  loc='upper left',
+                  bbox_to_anchor=(1.05, 1),
+                  borderaxespad=0.,
+                  frameon=False)
+
+        figures[comparison_key]["fig"].subplots_adjust(right=0.75)
+
+        # 文件保存路径管理
+        from pathlib import Path
+        save_dir = Path("data/spectrum_comparisons")
+        save_dir.mkdir(parents=True, exist_ok=True)
+        figures[comparison_key]["fig"].savefig(
+            save_dir / f"DeepCNN_spectrum_{sample_idx}.png",  # 修改文件名
+            bbox_inches='tight',
+            dpi=300,
+            transparent=True  # 添加透明背景
+        )
 
     return figures
+# def plot_DeepCNN_spectrum1(predictions: np.ndarray, true_DOA: np.ndarray,
+#                            roots: np.ndarray, algorithm: str, figures: dict = None,sample_idx: int = 0):
+#     """
+#     在直角坐标系绘制DeepCNN谱图并与MVDR比较
+#     """
+#     # 打印真实DOA
+#     unique_true_doa = np.unique(true_DOA)
+#     print(f"[DeepCNN] True DOAs: {unique_true_doa}")
+#     if figures is None:
+#         figures = {}
+#     # 为每个样本创建独立的 comparison_key 键
+#     comparison_key = f"comparison_{sample_idx}"
+#     # 初始化比较图容器
+#     if comparison_key not in figures:
+#         figures[comparison_key] = {'fig': None, 'ax': None}
+#     # 创建图形对象
+#     if figures[comparison_key]["fig"] is None:
+#         figures[comparison_key]["fig"] = plt.figure(figsize=(10, 6))
+#         figures[comparison_key]["ax"] = figures[comparison_key]["fig"].add_subplot(111)
+#     ax = figures[comparison_key]["ax"]
+#     predictions_norm=predictions/ np.max(predictions)
+#
+#
+#     # 生成角度坐标
+#     angles = np.linspace(-15, 15, 241)
+#
+#     # 绘制DeepCNN谱线
+#     line_cnn, = ax.plot(angles, predictions_norm ,
+#                         color='#1f77b4',
+#                         linewidth=2,
+#                         alpha=0.8,
+#                         label='DeepCNN Spectrum')
+#
+#     # 使用改进后的峰值检测函数
+#     selected_peaks, peak_angles = detect_top_peaks(
+#         predictions_norm,
+#         angles,
+#         min_distance=2,
+#         top_k=2
+#     )
+#     print(f"[DeepCNN] Predicted DOAs: {peak_angles}")
+#     # 绘制筛选后的峰值点
+#     for i, idx in enumerate(selected_peaks):
+#         ax.scatter(
+#             angles[idx],  # 峰对应的角度
+#             predictions_norm[idx],  # 峰对应的强度值
+#             color=line_cnn.get_color(),
+#             marker='^',
+#             s=100,
+#             edgecolor='k',
+#             zorder=5,
+#             label='CNN Predictions' if i == 0 else None  # 仅第一个点添加图例
+#         )
+#     # 标记最大的两个值
+#     # top_two_indices = np.argsort(predictions_norm)[::-1][:2]
+#     # peak_angles = angles[top_two_indices]
+#     # for i, p in enumerate(peak_angles):
+#     #     ax.scatter(p, predictions_norm[np.argmin(np.abs(angles - p))],
+#     #                color=line_cnn.get_color(),
+#     #                marker='^',
+#     #                s=100,
+#     #                edgecolor='k',
+#     #                zorder=5,
+#     #                label='CNN Predictions' if i == 0 else None)
+#
+#     # # 标记预测峰值
+#     # peaks = argrelextrema(predictions_norm, np.greater)[0]
+#     # peak_angles = angles[peaks]  # 将索引转换为角度值
+#     # for p in peak_angles[:2]:  # 假设最多两个信号
+#     #     ax.scatter(p, predictions_norm[np.argmin(np.abs(angles - p))],
+#     #                color=line_cnn.get_color(),
+#     #                marker='^',
+#     #                s=100,
+#     #                edgecolor='k',
+#     #                zorder=5,
+#     #                label='CNN Predictions' if p == peak_angles[0] else None)
+#
+#     # if roots is not None:
+#     #     print(f"[DeepCNN] Predicted DOAs: {roots}")
+#     #     for peak in roots:
+#     #         idx = np.abs(angles - peak).argmin()
+#     #         ax.scatter(angles[idx], predictions_norm[idx],
+#     #                    color=line_cnn.get_color(),
+#     #                    marker='^',
+#     #                    s=100,
+#     #                    edgecolor='k',
+#     #                    zorder=5,
+#     #                    label='CNN Predictions')
+#
+#     # 标记真实DOA（只添加一次图例）
+#     for i, doa in enumerate(np.unique(true_DOA)):
+#         ax.axvline(doa, color='#d62728', linestyle='--', linewidth=2,
+#                    label='True DOA' if i == 0 else None)
+#
+#
+#
+#
+#     # 配置坐标轴
+#
+#     ax.set_xlim(-90, 90)
+#     ax.set_xticks(np.arange(-90, 91, 30))
+#     ax.set_xlabel("Azimuth Angle [deg]", fontsize=12)
+#     ax.set_ylabel("Normalized Amplitude", fontsize=12)
+#     ax.grid(True, alpha=0.4)
+#
+#
+#     return figures
 def plot_mvdr_spectrum(system_model, figures: dict, spectrum: np.ndarray,
                        true_DOA: np.ndarray, algorithm: str,sample_idx: int = 0):
     """

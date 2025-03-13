@@ -61,115 +61,120 @@ def evaluate_dnn_model(
         model_type (str, optional): The type of the model. Defaults to "SubspaceNet".
 
     Returns:
-        float: The overall evaluation loss.
+        tuple: (overall_loss, accuracy) - Average evaluation loss and prediction accuracy.
 
     Raises:
         Exception: If the loss criterion is not defined for the specified model type.
         Exception: If the model type is not defined.
     """
 
-    # Initialize values
+    # 初始化
     overall_loss = 0.0
+    correct_predictions = 0.0
     test_length = 0
-    # Set model to eval mode   model.eval() 使模型进入评估模式，影响 BatchNorm 和 Dropout 层的行为。
+    D2R = np.pi  / 180  # 度到弧度的转换常数
     model.eval()
-    # Gradients calculation isn't required for evaluation
+
     with torch.no_grad():
         for i, data in enumerate(dataset):
             X, DOA = data
-            test_length += DOA.shape[0]
-            # Convert observations and DoA to device
+            batch_size = DOA.shape[0]
+            test_length += batch_size
             X = X.to(device)
             DOA = DOA.to(device)
-            # Get model output
+
+            # 获取模型输出
             model_output = model(X)
+            # 根据模型类型处理预测值
             if model_type.startswith("DA-MUSIC"):
-                # Deep Augmented MUSIC
                 DOA_predictions = model_output
             elif model_type.startswith("DeepCNN"):
-                # Deep CNN02
                 if isinstance(criterion, nn.BCELoss):
-                    # If evaluation performed over validation set, loss is BCE
                     DOA_predictions = model_output
-
-                    # # find peaks in the pseudo spectrum of probabilities
-                    # DOA_predictions = (
-                    #     get_k_peaks(361, DOA.shape[1], DOA_predictions[0]) * D2R
-                    # )
-                    # DOA_predictions = DOA_predictions.view(1, DOA_predictions.shape[0])
                 elif isinstance(criterion, (RMSPELoss, MSPELoss)):
-                    # If evaluation performed over testset, loss is RMSPE / MSPE
-                    # DOA_predictions = model_output
                     DOA_predictions = model_output[0].cpu().numpy()
-
-
-                    # 生成角度坐标
-                    angles = np.linspace(-15, 15, 241)
+                    angles = np.linspace(-15,  15, 241)
                     predictions_norm = DOA_predictions / np.max(DOA_predictions)
                     selected_peaks, peak_angles = detect_top_peaks(
-                        predictions_norm,
-                        angles,
-                        min_distance=5,
-                        top_k=2
+                        predictions_norm, angles, min_distance=5, top_k=2
                     )
-                    DOA_predictions=peak_angles*D2R
-
-
-                    # # # find peaks in the pseudo spectrum of probabilities
-                    # DOA_predictions = (
-                    #         get_k_peaks(121, DOA.shape[1], DOA_predictions[0]) * D2R
-                    # )
-                    DOA_predictions = torch.tensor(DOA_predictions).view(1, DOA_predictions.shape[0])
-                    # print(f"[DeepCNN] Predicted DOAs: {DOA_predictions}")
-
-
+                    DOA_predictions = peak_angles * D2R
+                    DOA_predictions = torch.tensor(DOA_predictions,  device=device).view(1, -1)
                 else:
                     raise Exception(
                         f"evaluate_dnn_model: Loss criterion is not defined for {model_type} model"
                     )
             elif model_type.startswith("SubspaceNet"):
-                # Default - SubSpaceNet
                 DOA_predictions = model_output[0]
             else:
                 raise Exception(
                     f"evaluate_dnn_model: Model type {model_type} is not defined"
                 )
-            # Compute prediction loss
 
-            if model_type.startswith("DeepCNN") and isinstance(criterion, RMSPELoss):
-                eval_loss = criterion(torch.tensor(DOA_predictions).float(), DOA.float())  # by j
+            # 计算损失
+            if model_type.startswith("DeepCNN")  and isinstance(criterion, RMSPELoss):
+                eval_loss = criterion(DOA_predictions.float(),  DOA.float())
             else:
-                eval_loss = criterion(torch.tensor(DOA_predictions).float(), DOA.float())
-            # add the batch evaluation loss to epoch loss
-            overall_loss += eval_loss.item()
-        overall_loss = overall_loss / test_length
-    # Plot spectrum for SubspaceNet model
-    if plot_spec and model_type.startswith("SubspaceNet"):
-        DOA_all = model_output[1]
-        roots = model_output[2]
-        plot_spectrum(
-            predictions=DOA_all * R2D,
-            true_DOA=DOA[0] * R2D,
-            roots=roots,
-            algorithm="SubNet+R-MUSIC",
-            figures=figures,
-        )
-    if plot_spec and model_type.startswith("DeepCNN"):
-        # 获取DeepCNN模型输出的概率谱
-        spectrum = model_output[0].cpu().numpy()  # 假设模型输出为(batch_size, 361)的概率分布
-        true_DOA_deg = DOA[0].cpu().numpy() * R2D  # 转换为度数
-        # 提取预测的峰值角度
-        predicted_peaks_deg = DOA_predictions[0].numpy() * R2D
+                eval_loss = criterion(DOA_predictions.float(),  DOA.float())
+            overall_loss += eval_loss.item()  * batch_size  # 按样本数加权
 
-        # 调用绘图函数
-        if plot_spec and i == len(dataset.dataset) - 1:
-            plot_spectrum(
-                predictions=spectrum,  # 概率谱数据
-                true_DOA=true_DOA_deg,  # 真实角度
-                roots=predicted_peaks_deg,  # 预测的峰值角度（用roots参数传递）
-                algorithm="My_transform_Model",  # 算法标识
-                figures=figures  # 图形容器
-            )
+            # 计算正确率（新增核心逻辑）
+            DOA_pred = DOA_predictions.cpu().numpy()
+            DOA_true = DOA.cpu().numpy()
+            for b in range(batch_size):
+                pred_angles = DOA_pred[b] if DOA_pred.ndim  > 1 else DOA_pred
+                true_angles = DOA_true[b]
+                pred_deg = pred_angles / D2R
+                true_deg = true_angles / D2R
+
+                # 过滤无效角度（假设-1为无效标记）
+                valid_true = true_deg[true_deg != -1]
+                valid_pred = pred_deg[: len(valid_true)]
+                if len(valid_pred) < len(valid_true):
+                    continue
+
+                # 单目标/双目标判断逻辑
+                if len(valid_true) == 1:
+                    if abs(valid_true[0] - valid_pred[0]) <= 2:
+                        correct_predictions += 1
+                elif len(valid_true) >= 2:
+                    diff1 = [abs(valid_pred[0]-valid_true[0]), abs(valid_pred[1]-valid_true[1])]
+                    diff2 = [abs(valid_pred[0]-valid_true[1]), abs(valid_pred[1]-valid_true[0])]
+                    if (max(diff1) <= 1) or (max(diff2) <= 1):
+                        correct_predictions += 1
+                # Plot spectrum for SubspaceNet model
+                if plot_spec and model_type.startswith("SubspaceNet"):
+                    DOA_all = model_output[1]
+                    roots = model_output[2]
+                    plot_spectrum(
+                        predictions=DOA_all * R2D,
+                        true_DOA=DOA[0] * R2D,
+                        roots=roots,
+                        algorithm="SubNet+R-MUSIC",
+                        figures=figures,
+                    )
+                if plot_spec and model_type.startswith("DeepCNN"):
+                    # 获取DeepCNN模型输出的概率谱
+                    spectrum = model_output[0].cpu().numpy()  # 假设模型输出为(batch_size, 361)的概率分布
+                    true_DOA_deg = DOA[0].cpu().numpy() * R2D  # 转换为度数
+                    # 提取预测的峰值角度
+                    predicted_peaks_deg = DOA_predictions[0].cpu().numpy() * R2D
+
+                    # 调用绘图函数
+                    if plot_spec:  # and i == len(dataset.dataset) - 1
+                        plot_spectrum(
+                            predictions=spectrum,  # 概率谱数据
+                            true_DOA=true_DOA_deg,  # 真实角度
+                            roots=predicted_peaks_deg,  # 预测的峰值角度（用roots参数传递）
+                            algorithm="My_transform_Model",  # 算法标识
+                            figures=figures,  # 图形容器
+                            sample_idx=i  # 新增参数：样本索引   by j 224
+                        )
+
+        # 计算最终指标
+        overall_loss = overall_loss / test_length
+        accuracy = correct_predictions / test_length if test_length > 0 else 0.0
+
     # if plot_spec and model_type.startswith("DeepCNN"):
     #     DOA_all = model_output[1]
     #     roots = model_output[2]
@@ -180,7 +185,7 @@ def evaluate_dnn_model(
     #         algorithm="SubNet+R-MUSIC",
     #         figures=figures,
     #     )
-    return overall_loss
+    return overall_loss,accuracy
 
 def evaluate_transformer_model(
         model,
@@ -904,7 +909,7 @@ def evaluate(
             model_type=model_type,
         )
     elif training_params.model_type.startswith("DeepCNN"):
-        model_test_loss = evaluate_dnn_model(
+        model_test_loss, acc = evaluate_dnn_model(
             model=model,
             dataset=model_test_dataset,
             criterion=criterion,

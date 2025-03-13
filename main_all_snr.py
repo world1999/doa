@@ -93,14 +93,14 @@ if __name__ == "__main__":
         SystemModelParams()
         .set_parameter("N", 16)
         .set_parameter("M", 2)
-        .set_parameter("T", 100)
+        .set_parameter("T", 1000)
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
         .set_parameter("eta", 0)
         .set_parameter("bias", 0)
         .set_parameter("sv_noise_var", 0)
     )
-    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3112027)##多个数据集的训练过程日志和模型记录的参数 -20 只做记录用
+    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3121501)##多个数据集的训练过程日志和模型记录的参数 -20 只做记录用
     # 定义需要遍历的snr值列表
     snr_values = [0]
 

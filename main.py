@@ -91,16 +91,17 @@ if __name__ == "__main__":
         SystemModelParams()
         .set_parameter("N", 16)
         .set_parameter("M", 2)
-        .set_parameter("T", 200)
+        .set_parameter("T", 1000)
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
         .set_parameter("eta", 0)
         .set_parameter("bias", 0)
         .set_parameter("sv_noise_var", 0)
     )
-    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 311301)#评估时加载的模型
+    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3121501)#评估时加载的模型
     # 定义需要遍历的snr值列表
-    test_snr = range(-13,6,1)
+    # test_snr = range(-13,6,1)
+    test_snr = [0]
     for snr in test_snr:
 
         system_model_params1 = copy.deepcopy(base_params).set_parameter("snr", snr)#测试集生成需要的参数
@@ -109,7 +110,7 @@ if __name__ == "__main__":
         # Generate model configuration
         model_config = (
             ModelGenerator()
-            .set_model_type("My_transform_Model")#SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC
+            .set_model_type("DeepCNN")#SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC  My_transform_Model
             .set_diff_method("root_music")# root_music esprit
             .set_tau(8)
             .set_model(system_model_params)
@@ -151,7 +152,7 @@ if __name__ == "__main__":
                 # Generate test dataset
                 test_dataset, generic_test_dataset, samples_model = create_dataset(
                     system_model_params=system_model_params1,
-                    samples_size=500,
+                    samples_size=10,
                     # samples_size=int(train_test_ratio * samples_size),
                     model_type=model_config.model_type,
                     tau=model_config.tau,
@@ -277,7 +278,8 @@ if __name__ == "__main__":
                 subspace_criterion=subspace_criterion,
                 system_model=samples_model,
                 figures=figures,
-                plot_spec=False,
+                plot_spec=True,
+                training_params=simulation_parameters
 
                 # augmented_methods='mvdr'
             )
