@@ -37,9 +37,10 @@ import torch
 from scipy.signal import argrelextrema
 
 from src.methods import MUSIC, RootMUSIC, MVDR
+from src.system_model import SystemModelParams
 from src.utils import R2D
 
-def plot_spectrum(predictions: np.ndarray, true_DOA: np.ndarray, system_model=None,
+def plot_spectrum(system_model_params: SystemModelParams, predictions: np.ndarray, true_DOA: np.ndarray, system_model=None,
     spectrum: np.ndarray =None, roots: np.ndarray =None, algorithm:str ="music",
     figures:dict = None, sample_idx: int = 0):
   """
@@ -70,15 +71,15 @@ def plot_spectrum(predictions: np.ndarray, true_DOA: np.ndarray, system_model=No
     plot_root_music_spectrum(roots, predictions, true_DOA, algorithm)
   elif "deepcnn" in algorithm.lower():
     # plot_DeepCNN_spectrum(predictions, true_DOA, roots, algorithm)  # 参数顺序调整
-    plot_DeepCNN_spectrum1(predictions, true_DOA, roots, algorithm, figures, sample_idx)  # 直角坐标系
+    plot_DeepCNN_spectrum1(system_model_params,predictions, true_DOA, roots, algorithm, figures, sample_idx)  # 直角坐标系
   elif "my_transform_model" in algorithm.lower():
     # plot_DeepCNN_spectrum(predictions, true_DOA, roots, algorithm)  # 参数顺序调整
-    plot_My_transform_Model_spectrum(predictions, true_DOA, roots, algorithm, figures, sample_idx)  # 直角坐标系
+    plot_My_transform_Model_spectrum(system_model_params,predictions, true_DOA, roots, algorithm, figures, sample_idx)  # 直角坐标系
   else:
     raise Exception(f"evaluate_augmented_model: Algorithm {algorithm} is not supported.")
 
 
-def plot_My_transform_Model_spectrum(predictions: np.ndarray, true_DOA: np.ndarray,
+def plot_My_transform_Model_spectrum(system_model_params: SystemModelParams,predictions: np.ndarray, true_DOA: np.ndarray,
                            roots: np.ndarray, algorithm: str, figures: dict = None,sample_idx: int = 0):
     """
     在直角坐标系绘制DeepCNN谱图并与MVDR比较
@@ -105,7 +106,7 @@ def plot_My_transform_Model_spectrum(predictions: np.ndarray, true_DOA: np.ndarr
 
 
     # 生成角度坐标
-    angles = np.linspace(-15, 15, 241)
+    angles = np.linspace(-15, 15, system_model_params.grid_size)
 
     # 绘制DeepCNN谱线
     line_cnn, = ax.plot(angles, predictions_norm ,
@@ -210,7 +211,7 @@ def plot_My_transform_Model_spectrum(predictions: np.ndarray, true_DOA: np.ndarr
     return figures
 
 
-def plot_DeepCNN_spectrum1(predictions: np.ndarray, true_DOA: np.ndarray,
+def plot_DeepCNN_spectrum1(system_model_params: SystemModelParams,predictions: np.ndarray, true_DOA: np.ndarray,
                            roots: np.ndarray, algorithm: str, figures: dict = None, sample_idx: int = 0):
     """
     在直角坐标系绘制DeepCNN谱图并与MVDR比较（升级版）
@@ -238,7 +239,7 @@ def plot_DeepCNN_spectrum1(predictions: np.ndarray, true_DOA: np.ndarray,
 
     # 数据规范化处理
     predictions_norm = predictions / np.max(predictions)
-    angles = np.linspace(-15, 15, 241)
+    angles = np.linspace(-15, 15, system_model_params.grid_size)
 
     # 核心绘图逻辑
     line_cnn, = ax.plot(angles, predictions_norm,

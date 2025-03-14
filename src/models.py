@@ -20,14 +20,14 @@ The implemented models:
         [2] "SubspaceNet: Deep Learning-Aided Subspace methods for DoA Estimation".
     
     * DA-MUSIC: Deep Augmented MUSIC model-based deep learning algorithm as described in
-        [3] J. P. Merkofer, G. Revach, N. Shlezinger, and R. J. van Sloun, “Deep
-        augmented MUSIC algorithm for data-driven DoA estimation,” in IEEE
+        [3] J. P. Merkofer, G. Revach, N. Shlezinger, and R. J. van Sloun, "Deep
+        augmented MUSIC algorithm for data-driven DoA estimation," in IEEE
         International Conference on Acoustics, Speech and Signal Processing
         (ICASSP), 2022, pp. 3598-3602."
         
     * DeepCNN: Deep learning algorithm as described in:
-        [4] G. K. Papageorgiou, M. Sellathurai, and Y. C. Eldar, “Deep networks
-        for direction-of-arrival estimation in low SNR,” IEEE Trans. Signal
+        [4] G. K. Papageorgiou, M. Sellathurai, and Y. C. Eldar, "Deep networks
+        for direction-of-arrival estimation in low SNR," IEEE Trans. Signal
         Process., vol. 69, pp. 3714-3729, 2021.
 
 Functions:
@@ -42,7 +42,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import warnings
-
+# from src.training import OffgridDOA
 from src.model_transform import My_transform_Model
 from src.utils import gram_diagonal_overload, device
 from src.utils import sum_of_diags_torch, find_roots_torch
@@ -52,6 +52,69 @@ warnings.simplefilter("ignore")
 # Constants
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+
+class OffgridDOA(nn.Module):
+    def __init__(self, num_classes=241, N=16):
+        # 定义您的模型结构
+        super(OffgridDOA, self).__init__()
+
+        # 分类网络
+        self.cls_net = nn.Sequential(
+            nn.Linear(config['input_dim'], 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, config['cls_output']),
+            nn.Sigmoid()
+        )
+
+        # 回归网络
+        self.reg_net = nn.Sequential(
+            nn.Linear(400, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(64, config['reg_output'])
+        )
+
+    def forward(self, x):
+        # 实现前向传播
+        # 分类分支
+        cls_feat1 = self.cls_net[:4](x)  # 前两层
+        cls_feat2 = self.cls_net[4:8](cls_feat1)  # 第三层
+        cls_feat3 = self.cls_net[8:12](cls_feat2)  # 第四层
+        cls_output = self.cls_net[12:](cls_feat3)  # 第五层
+
+        # 回归分支
+        reg_input = torch.cat([x, cls_feat3], dim=1)
+        reg_output = self.reg_net(reg_input)
+
+        return cls_output, reg_output
 
 class ModelGenerator(object):
     """
@@ -148,9 +211,11 @@ class ModelGenerator(object):
                 M=system_model_params.M,
             )
         elif self.model_type.startswith("DeepCNN"):
-            self.model = DeepCNN(N=system_model_params.N, grid_size=241)
+            self.model = DeepCNN(N=system_model_params.N, grid_size=system_model_params.grid_size)
         elif self.model_type.startswith("My_transform_Model"):
-            self.model = My_transform_Model(num_classes=241,N=16)
+            self.model = My_transform_Model(num_classes=system_model_params.grid_size, N=system_model_params.N)
+        elif self.model_type.startswith("OffgridDOA"):
+            self.model = OffgridDOA(num_classes=system_model_params.grid_size, N=system_model_params.N)
         elif self.model_type.startswith("SubspaceNet"):
             self.model = SubspaceNet(
                 tau=self.tau, M=system_model_params.M, diff_method=self.diff_method
@@ -738,8 +803,7 @@ def root_music(Rz: torch.Tensor, M: int, batch_size: int):
         roots_to_return = roots
         # Take only roots which inside the unit circle
         roots = roots[
-            sorted(range(roots.shape[0]), key=lambda k: abs(abs(roots[k]) - 1))
-        ]
+            sorted(range(roots.shape[0]), key=lambda k: abs(abs(roots[k]) - 1))]
         mask = (torch.abs(roots) - 1) < 0
         roots = roots[mask][:M]
         # Calculate the phase component of the roots

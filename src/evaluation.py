@@ -31,7 +31,7 @@ evaluate: Wrapper function for model and algorithm evaluations.
 import torch.nn as nn
 from matplotlib import pyplot as plt
 from scipy.signal import argrelextrema
-
+from src.system_model import SystemModelParams
 from src.utils import device
 from src.criterions import RMSPELoss, MSPELoss
 from src.criterions import RMSPE, MSPE
@@ -42,12 +42,14 @@ from src.plotting import plot_spectrum, detect_top_peaks
 
 
 def evaluate_dnn_model(
+    system_model_params: SystemModelParams,
     model,
     dataset: list,
     criterion: nn.Module,
     plot_spec: bool = False,
     figures: dict = None,
     model_type: str = "SubspaceNet",
+
 ):
     """
     Evaluate the DNN model on a given dataset.
@@ -77,15 +79,21 @@ def evaluate_dnn_model(
 
     with torch.no_grad():
         for i, data in enumerate(dataset):
+            # if i <=11:
+            #     continue
+            # print(i)
             X, DOA = data
             batch_size = DOA.shape[0]
-            test_length += batch_size
             X = X.to(device)
             DOA = DOA.to(device)
 
             # 获取模型输出
             model_output = model(X)
-            # 根据模型类型处理预测值
+            # # 检测全零输出（支持多设备）
+            # if model_output.numel()  == 0:  # 自动兼容CPU/GPU张量
+            #     continue  # 跳过当前样本/批次
+
+        # 根据模型类型处理预测值
             if model_type.startswith("DA-MUSIC"):
                 DOA_predictions = model_output
             elif model_type.startswith("DeepCNN"):
@@ -93,7 +101,7 @@ def evaluate_dnn_model(
                     DOA_predictions = model_output
                 elif isinstance(criterion, (RMSPELoss, MSPELoss)):
                     DOA_predictions = model_output[0].cpu().numpy()
-                    angles = np.linspace(-15,  15, 241)
+                    angles = np.linspace(-15,  15, system_model_params.grid_size)
                     predictions_norm = DOA_predictions / np.max(DOA_predictions)
                     selected_peaks, peak_angles = detect_top_peaks(
                         predictions_norm, angles, min_distance=5, top_k=2
@@ -110,7 +118,9 @@ def evaluate_dnn_model(
                 raise Exception(
                     f"evaluate_dnn_model: Model type {model_type} is not defined"
                 )
-
+            if DOA_predictions.numel()  == 0:  # 自动兼容CPU/GPU张量
+                continue  # 跳过当前样本/批次
+            test_length += batch_size
             # 计算损失
             if model_type.startswith("DeepCNN")  and isinstance(criterion, RMSPELoss):
                 eval_loss = criterion(DOA_predictions.float(),  DOA.float())
@@ -147,6 +157,7 @@ def evaluate_dnn_model(
                     DOA_all = model_output[1]
                     roots = model_output[2]
                     plot_spectrum(
+                        system_model_params=system_model_params,
                         predictions=DOA_all * R2D,
                         true_DOA=DOA[0] * R2D,
                         roots=roots,
@@ -163,6 +174,7 @@ def evaluate_dnn_model(
                     # 调用绘图函数
                     if plot_spec:  # and i == len(dataset.dataset) - 1
                         plot_spectrum(
+                            system_model_params=system_model_params,
                             predictions=spectrum,  # 概率谱数据
                             true_DOA=true_DOA_deg,  # 真实角度
                             roots=predicted_peaks_deg,  # 预测的峰值角度（用roots参数传递）
@@ -188,6 +200,7 @@ def evaluate_dnn_model(
     return overall_loss,accuracy
 
 def evaluate_transformer_model(
+        system_model_params: SystemModelParams,
         model,
         dataset: list,
         criterion: nn.Module,
@@ -238,7 +251,7 @@ def evaluate_transformer_model(
                     DOA_predictions = model_output
                 elif isinstance(criterion, (RMSPELoss, MSPELoss)):
                     DOA_predictions = model_output[0].cpu().numpy()
-                    angles = np.linspace(-15, 15, 241)
+                    angles = np.linspace(-15, 15, system_model_params.grid_size)
                     predictions_norm = DOA_predictions / np.max(DOA_predictions)
                     selected_peaks, peak_angles = detect_top_peaks(
                         predictions_norm, angles, min_distance=5, top_k=2
@@ -305,6 +318,7 @@ def evaluate_transformer_model(
                     # 调用绘图函数
                     if plot_spec:
                         plot_spectrum(
+                            system_model_params=system_model_params,
                             predictions=spectrum,  # 概率谱数据
                             true_DOA=true_DOA_deg,  # 真实角度
                             roots=predicted_peaks_deg,  # 预测的峰值角度（用roots参数传递）
@@ -319,6 +333,11 @@ def evaluate_transformer_model(
 
     return overall_loss, accuracy
 
+# def evaluate_augmented_model(
+#     model: SubspaceNet,
+#     dataset,
+#     system_model,
+#     criterion=RMSPE,
 # def evaluate_transformer_model(
 #     model,
 #     dataset: list,
@@ -684,6 +703,7 @@ def evaluate_augmented_model(
 #     return np.mean(loss_list)
 
 def evaluate_model_based(
+    system_model_params: SystemModelParams,
     dataset: list,
     system_model,
     criterion,  # RMSPE or similar
@@ -776,10 +796,7 @@ def evaluate_model_based(
             loss_list.append(loss)
 
         if plot_spec:
-            plot_spectrum(predictions=None, true_DOA=doa * R2D, system_model=system_model, spectrum=spectrum_norm, algorithm=algorithm.upper(), figures=figures,sample_idx=i)
-
-        # else:
-        #     raise Exception(f"evaluate_augmented_model: Algorithm {algorithm} is not supported.")
+            plot_spectrum(system_model_params,predictions=None, true_DOA=doa * R2D, system_model=system_model, spectrum=spectrum_norm, algorithm=algorithm.upper(), figures=figures,sample_idx=i)
 
         # 计算准确率
         pred_angles = predictions if "mvdr" not in algorithm else predicted_doas  # MVDR使用predicted_doas
@@ -812,6 +829,20 @@ def evaluate_model_based(
     accuracy = correct_predictions / total_samples if total_samples > 0 else 0.0
 
     return average_loss, accuracy
+def evaluate_offgrid_model(
+    model: nn.Module,
+    dataset: list,
+    criterion: nn.Module,
+    plot_spec: bool = False,
+    algorithm: str = "music",
+    figures: dict = None,
+):
+    """
+    Evaluate the offgrid DOA model on a given dataset.
+
+    Args:
+        model: The offgrid DOA model.
+    """
 def add_random_predictions(M: int, predictions: np.ndarray, algorithm: str):
     """
     Add random predictions if the number of predictions is less than the number of sources.
@@ -837,6 +868,7 @@ def add_random_predictions(M: int, predictions: np.ndarray, algorithm: str):
 
 
 def evaluate(
+    system_model_params: SystemModelParams,
     model: nn.Module,
     model_type: str,
     model_test_dataset: list,
@@ -848,11 +880,14 @@ def evaluate(
     plot_spec: bool = True,
     augmented_methods: list = None,
     subspace_methods: list = None,
-    training_params=None):
+    training_params=None,
+
+):
     """
     Wrapper function for model and algorithm evaluations.
 
     Parameters:
+        system_model_params:
         model (nn.Module): The DNN model.
         model_type (str): Type of the model.
         model_test_dataset (list): Test dataset for the model.
@@ -907,6 +942,7 @@ def evaluate(
             plot_spec=plot_spec,
             figures=figures,
             model_type=model_type,
+            system_model_params=system_model_params
         )
     elif training_params.model_type.startswith("DeepCNN"):
         model_test_loss, acc = evaluate_dnn_model(
@@ -916,6 +952,7 @@ def evaluate(
             plot_spec=plot_spec,
             figures=figures,
             model_type=model_type,
+            system_model_params=system_model_params
         )
 
     print(f"{model_type} Test loss = {model_test_loss*R2D}")
@@ -935,6 +972,7 @@ def evaluate(
     # Evaluate classical subspace methods
     for algorithm in subspace_methods:
         loss, accuracy = evaluate_model_based(
+            system_model_params,
             generic_test_dataset,
             system_model,
             criterion=subspace_criterion,

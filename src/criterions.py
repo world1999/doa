@@ -107,6 +107,7 @@ class RMSPELoss(nn.Module):
         """
         rmspe = []
         for iter in range(doa_predictions.shape[0]):
+            # print(iter)
             rmspe_list = []
             batch_predictions = doa_predictions[iter].to(device)
             targets = doa[iter].to(device)

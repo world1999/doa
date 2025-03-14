@@ -87,21 +87,22 @@ if __name__ == "__main__":
         )
         sys.stdout = open(file_path, "w")
     # Define system model parameters
-    base_params = (  # by j1 start    训练模型用
+    base_params = (
         SystemModelParams()
         .set_parameter("N", 16)
         .set_parameter("M", 2)
-        .set_parameter("T", 1000)
+        .set_parameter("T", 100)
+        .set_parameter("grid_size", 31)  # 设置网格点数量
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
         .set_parameter("eta", 0)
         .set_parameter("bias", 0)
         .set_parameter("sv_noise_var", 0)
     )
-    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3121501)#评估时加载的模型
+    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3142027)#评估时加载的模型
     # 定义需要遍历的snr值列表
     # test_snr = range(-13,6,1)
-    test_snr = [0]
+    test_snr = [-5]
     for snr in test_snr:
 
         system_model_params1 = copy.deepcopy(base_params).set_parameter("snr", snr)#测试集生成需要的参数
@@ -149,6 +150,14 @@ if __name__ == "__main__":
                     phase="train",
                 )
             if create_testing_data:
+                # # 生成第一个角度：14:0.01:11.01
+                # angle1 = np.arange(14, 13.00, -0.01)  # 从 14 开始，间隔 -0.01，直到 11.00
+                # angle1 = np.round(angle1, 2)  # 保留两位小数
+                # # 生成第二个角度：固定间隔为 -5 度
+                # angle2 = angle1 - 7  # 每个值减去 5 度
+                # angle2 = np.round(angle2, 2)  # 保留两位小数
+                # # 将两个角度列表合并为元组列表
+                # paired_angles = list(zip(angle1, angle2))
                 # Generate test dataset
                 test_dataset, generic_test_dataset, samples_model = create_dataset(
                     system_model_params=system_model_params1,
@@ -159,6 +168,7 @@ if __name__ == "__main__":
                     save_datasets=True,
                     datasets_path=datasets_path,
                     true_doa=None,
+                    # true_doa=paired_angles,#生成测试集时需要指定角度
                     phase="test",
                 )
         # Datasets loading
@@ -270,6 +280,7 @@ if __name__ == "__main__":
             )
             # Evaluate DNN models, augmented and subspace methods
             evaluate(
+                system_model_params=base_params,
                 model=model,
                 model_type=model_config.model_type,
                 model_test_dataset=model_test_dataset,
@@ -279,8 +290,8 @@ if __name__ == "__main__":
                 system_model=samples_model,
                 figures=figures,
                 plot_spec=True,
+                # plot_spec=False,
                 training_params=simulation_parameters
-
                 # augmented_methods='mvdr'
             )
             # 在主要评估代码最后添加：

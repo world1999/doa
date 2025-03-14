@@ -42,7 +42,7 @@ from torch.autograd import Variable
 from tqdm import tqdm
 from torch.optim import lr_scheduler
 from sklearn.model_selection import train_test_split
-
+from src.data_handler import config
 from src.model_transform import My_transform_Model
 from src.utils import *
 from src.criterions import *
@@ -157,6 +157,10 @@ class TrainingParams(object):
                 model = SubspaceNet(
                     tau=tau, M=system_model.params.M, diff_method=diff_method
                 )
+            elif self.model_type.startswith("OffgridDOA"):
+                self.model = OffgridDOA(num_classes=241, N=16)
+            elif self.model_type.startswith("YourNewModel"):
+                self.model = YourNewModel(num_classes=241, N=16)
             else:
                 raise Exception(
                     f"TrainingParams.set_model: Model type {self.model_type} is not defined"
@@ -294,6 +298,7 @@ class TrainingParams(object):
 
 
 def train(
+    system_model_params: SystemModelParams,
     training_parameters: TrainingParams,
     model_name: str,
     plot_curves: bool = True,
@@ -329,7 +334,7 @@ def train(
     dt_string_for_save = now.strftime("%d_%m_%Y_%H_%M")
     print("date and time =", dt_string)
     # Train the model
-    model, loss_train_list, loss_valid_list = train_model(
+    model, loss_train_list, loss_valid_list = train_model(system_model_params,
         training_parameters, model_name=model_name, checkpoint_path=saving_path
     )
     # Save models best weights
@@ -342,7 +347,7 @@ def train(
     return model, loss_train_list, loss_valid_list
 
 
-def train_model(training_params: TrainingParams, model_name: str, checkpoint_path=None):
+def train_model(system_model_params: SystemModelParams,training_params: TrainingParams, model_name: str, checkpoint_path=None):
     """
     Function for training the model.
 
@@ -424,13 +429,15 @@ def train_model(training_params: TrainingParams, model_name: str, checkpoint_pat
         # Calculate evaluation loss
         if training_params.model_type.startswith("My_transform_Model"):
             valid_loss, _ = evaluate_transformer_model(
+                system_model_params,
                 model,
                 training_params.valid_dataset,
                 training_params.criterion,
                 model_type=training_params.model_type,
             )
         elif training_params.model_type.startswith("DeepCNN"):
-            valid_loss = evaluate_dnn_model(
+            valid_loss,_ = evaluate_dnn_model(
+                system_model_params,
                 model,
                 training_params.valid_dataset,
                 training_params.criterion,
@@ -560,3 +567,68 @@ def get_simulation_filename(
         + f"bias={system_model_params.bias}_"
         + f"sv_noise={system_model_params.sv_noise_var}"
     )
+
+
+class OffgridDOA(nn.Module):
+    def __init__(self, num_classes=241, N=16):
+      
+        # 定义您的模型结构
+        super(OffgridDOA, self).__init__()
+        
+        # 分类网络
+        self.cls_net  = nn.Sequential(
+            nn.Linear(config['input_dim'], 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, config['cls_output']),
+            nn.Sigmoid()
+        )
+        
+        # 回归网络
+        self.reg_net  = nn.Sequential(
+            nn.Linear(400, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(64, config['reg_output'])
+        )
+        
+    def forward(self, x):
+        # 实现前向传播
+         # 分类分支
+        cls_feat1 = self.cls_net[:4](x)   # 前两层
+        cls_feat2 = self.cls_net[4:8](cls_feat1)   # 第三层
+        cls_feat3 = self.cls_net[8:12](cls_feat2)  # 第四层
+        cls_output = self.cls_net[12:](cls_feat3)  # 第五层
+        
+        # 回归分支
+        reg_input = torch.cat([x,  cls_feat3], dim=1)
+        reg_output = self.reg_net(reg_input) 
+        
+        return cls_output, reg_output

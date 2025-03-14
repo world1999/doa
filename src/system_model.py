@@ -28,6 +28,7 @@ class SystemModelParams:
         M (int): Number of sources.
         N (int): Number of sensors.
         T (int): Number of observations.
+        grid_size (int): Number of grid points.
         signal_type (str): Signal type ("NarrowBand" or "Broadband").
         freq_values (list): Frequency values for Broadband signal.
         signal_nature (str): Signal nature ("non-coherent" or "coherent").
@@ -43,6 +44,7 @@ class SystemModelParams:
     M = None  # Number of sources
     N = None  # Number of sensors
     T = None  # Number of observations
+    grid_size = 241  # Number of grid points
     signal_type = "NarrowBand"  # Signal type ("NarrowBand" or "Broadband")
     freq_values = [0, 500]  # Frequency values for Broadband signal
     signal_nature = "non-coherent"  # Signal nature ("non-coherent" or "coherent")

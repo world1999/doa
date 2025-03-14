@@ -93,16 +93,17 @@ if __name__ == "__main__":
         SystemModelParams()
         .set_parameter("N", 16)
         .set_parameter("M", 2)
-        .set_parameter("T", 1000)
+        .set_parameter("T", 100)
+        .set_parameter("grid_size", 31)  # 添加网格点参数
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
         .set_parameter("eta", 0)
         .set_parameter("bias", 0)
         .set_parameter("sv_noise_var", 0)
     )
-    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3121501)##多个数据集的训练过程日志和模型记录的参数 -20 只做记录用
+    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3142027)##多个数据集的训练过程日志和模型记录的参数 -20 只做记录用
     # 定义需要遍历的snr值列表
-    snr_values = [0]
+    snr_values = [-10,-5,0]
 
 
     #测试机加噪声
@@ -213,7 +214,7 @@ if __name__ == "__main__":
         simulation_parameters = (
             TrainingParams()
             .set_batch_size(1024)
-            .set_epochs(50)
+            .set_epochs(80)
             .set_model(model=model_config)
             .set_optimizer(optimizer="Adam", learning_rate=0.0001, weight_decay=1e-7)#learning_rate=0.00001, weight_decay=1e-9
             .set_training_dataset(combined_dataset)  #by j
@@ -233,6 +234,7 @@ if __name__ == "__main__":
         )
         # Perform simulation training and evaluation stages
         model, loss_train_list, loss_valid_list = train(
+            system_model_params=base_params,
             training_parameters=simulation_parameters,
             model_name=simulation_filename,
             saving_path=saving_path,
@@ -303,6 +305,7 @@ if __name__ == "__main__":
         )
         # Evaluate DNN models, augmented and subspace methods
         evaluate(
+            system_model_params=system_model_params1,
             model=model,
             model_type=model_config.model_type,
             model_test_dataset=model_test_dataset,
@@ -311,9 +314,10 @@ if __name__ == "__main__":
             subspace_criterion=subspace_criterion,
             system_model=samples_model,
             figures=figures,
-            plot_spec=True,
+            # plot_spec=True,
+            plot_spec=False,
             # augmented_methods='mvdr'
-            training_params=simulation_parameters
+            training_params=simulation_parameters,
         )
         # 在主要评估代码最后添加：
         if "comparison" in figures and figures["comparison"]["fig"] is not None:

@@ -39,7 +39,29 @@ from src.system_model import SystemModelParams
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-
+config = {
+    # 阵列参数
+    'N': 12,                # 阵元数
+    'K': 2,                 # 源数
+    'theta_range': (-60, 60), # 角度范围
+    'min_separation': 2,    # 最小源间隔(度)
+    'T': 100,               # 快照数
+    'snr_db': 10,           # 信噪比(dB)
+    'sigma_n': 0.1**0.5,    # 噪声标准差
+    
+    # 模型参数
+    'grid_resolution': 1,   # 网格分辨率(度)
+    'input_dim': 144,       # 输入维度
+    'cls_output': 121,      # 分类输出维度
+    'reg_output': 2,        # 回归输出维度
+    
+    # 训练参数
+    'total_samples': 6300000, # 总样本数
+    'batch_size': 512,      
+    'epochs': 300,
+    'lr': 0.001,
+    'loss_weights': (100, 0.1)
+}
 def create_dataset(
         system_model_params: SystemModelParams,
         samples_size: float,
@@ -71,12 +93,13 @@ def create_dataset(
     generic_dataset = []
     model_dataset = []
     samples_model = Samples(system_model_params)
-
+    # if (model_type.startswith("OffgridDOA"))and phase.startswith("train"):
+    #
     # Generate permutations for CNN-based model training datasets
     if (model_type.startswith(("My_transform_Model", "DeepCNN")) and
             phase.startswith("train")):
         doa_permutations = []
-        angles_grid = np.linspace(start=-15, stop=15, num=241)
+        angles_grid = np.linspace(start=-15, stop=15, num=system_model_params.grid_size)
         for comb in itertools.combinations(angles_grid, system_model_params.M):
             doa_permutations.append(list(comb))
 
@@ -107,7 +130,11 @@ def create_dataset(
     # Test phase or non-CNN models
     else:
         for i in tqdm(range(samples_size)):
-            samples_model.set_doa(true_doa)
+            # samples_model.set_doa(true_doa[i])
+            if true_doa == None:
+                samples_model.set_doa(true_doa)
+            else:
+                samples_model.set_doa(true_doa[i])
             X = torch.tensor(
                 samples_model.samples_creation(
                     noise_mean=0, noise_variance=1, signal_mean=0, signal_variance=1
