@@ -159,8 +159,6 @@ class TrainingParams(object):
                 )
             elif self.model_type.startswith("OffgridDOA"):
                 self.model = OffgridDOA(num_classes=241, N=16)
-            elif self.model_type.startswith("YourNewModel"):
-                self.model = YourNewModel(num_classes=241, N=16)
             else:
                 raise Exception(
                     f"TrainingParams.set_model: Model type {self.model_type} is not defined"

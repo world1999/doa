@@ -124,6 +124,27 @@ def create_dataset(
             Y = torch.zeros_like(torch.tensor(angles_grid))
             for angle in doa:
                 Y[list(angles_grid).index(angle)] = 1
+
+            # 使用高斯核函数生成软标签
+            #     # Ground-truth creation (One-Hot encoding)
+            # Y = torch.zeros_like(torch.tensor(angles_grid))
+            # sigma = 2.0  # 可调整的核函数宽度参数
+            # angles_grid_tensor = torch.tensor(angles_grid, dtype=torch.float16)
+            #
+            # for i, grid_angle in enumerate(angles_grid_tensor):
+            #     # 对每个网格点,计算与所有真实角度的高斯核函数值之和
+            #     kernel_sum = 0
+            #     for theta in doa:
+            #         # 将theta转换为tensor并确保类型匹配
+            #         theta_tensor = torch.tensor(theta, dtype=torch.float16)
+            #         # 计算高斯核函数
+            #         kernel = torch.exp(-(grid_angle - theta_tensor) ** 2 / (2 * sigma ** 2))
+            #         kernel_sum += kernel
+            #     Y[i] = kernel_sum
+            #
+            # # 归一化处理(可选)
+            # Y = Y / torch.max(Y)
+
             model_dataset.append((X_model, Y))
             generic_dataset.append((X, Y))
 

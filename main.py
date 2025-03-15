@@ -92,17 +92,19 @@ if __name__ == "__main__":
         .set_parameter("N", 16)
         .set_parameter("M", 2)
         .set_parameter("T", 100)
-        .set_parameter("grid_size", 31)  # 设置网格点数量
+        .set_parameter("grid_size", 121)  # 设置网格点数量
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
         .set_parameter("eta", 0)
         .set_parameter("bias", 0)
         .set_parameter("sv_noise_var", 0)
     )
-    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3142027)#评估时加载的模型
+    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3150944)#评估时加载的模型
     # 定义需要遍历的snr值列表
     # test_snr = range(-13,6,1)
-    test_snr = [-5]
+    # test_snr = [-10,-5,0,10]
+    test_snr = range(-10,11,1)
+    # test_snr=[0]
     for snr in test_snr:
 
         system_model_params1 = copy.deepcopy(base_params).set_parameter("snr", snr)#测试集生成需要的参数
@@ -111,7 +113,7 @@ if __name__ == "__main__":
         # Generate model configuration
         model_config = (
             ModelGenerator()
-            .set_model_type("DeepCNN")#SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC  My_transform_Model
+            .set_model_type("My_transform_Model")#SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC  My_transform_Model
             .set_diff_method("root_music")# root_music esprit
             .set_tau(8)
             .set_model(system_model_params)
@@ -151,17 +153,17 @@ if __name__ == "__main__":
                 )
             if create_testing_data:
                 # # 生成第一个角度：14:0.01:11.01
-                # angle1 = np.arange(14, 13.00, -0.01)  # 从 14 开始，间隔 -0.01，直到 11.00
-                # angle1 = np.round(angle1, 2)  # 保留两位小数
-                # # 生成第二个角度：固定间隔为 -5 度
-                # angle2 = angle1 - 7  # 每个值减去 5 度
-                # angle2 = np.round(angle2, 2)  # 保留两位小数
-                # # 将两个角度列表合并为元组列表
-                # paired_angles = list(zip(angle1, angle2))
+                angle1 = np.arange(14, 4, -1)  # 从 14 开始，间隔 -0.01，直到 11.00
+                angle1 = np.round(angle1, 2)  # 保留两位小数
+                # 生成第二个角度：固定间隔为 -5 度
+                angle2 = angle1 - 9  # 每个值减去 5 度
+                angle2 = np.round(angle2, 2)  # 保留两位小数
+                # 将两个角度列表合并为元组列表
+                paired_angles = list(zip(angle1, angle2))
                 # Generate test dataset
                 test_dataset, generic_test_dataset, samples_model = create_dataset(
                     system_model_params=system_model_params1,
-                    samples_size=10,
+                    samples_size=100,
                     # samples_size=int(train_test_ratio * samples_size),
                     model_type=model_config.model_type,
                     tau=model_config.tau,
@@ -289,8 +291,8 @@ if __name__ == "__main__":
                 subspace_criterion=subspace_criterion,
                 system_model=samples_model,
                 figures=figures,
-                plot_spec=True,
-                # plot_spec=False,
+                # plot_spec=True,
+                plot_spec=False,
                 training_params=simulation_parameters
                 # augmented_methods='mvdr'
             )

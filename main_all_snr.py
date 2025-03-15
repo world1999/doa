@@ -94,16 +94,16 @@ if __name__ == "__main__":
         .set_parameter("N", 16)
         .set_parameter("M", 2)
         .set_parameter("T", 100)
-        .set_parameter("grid_size", 31)  # 添加网格点参数
+        .set_parameter("grid_size", 121)  # 添加网格点参数
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
         .set_parameter("eta", 0)
         .set_parameter("bias", 0)
         .set_parameter("sv_noise_var", 0)
     )
-    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3142027)##多个数据集的训练过程日志和模型记录的参数 -20 只做记录用
+    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3150944)##多个数据集的训练过程日志和模型记录的参数 -20 只做记录用
     # 定义需要遍历的snr值列表
-    snr_values = [-10,-5,0]
+    snr_values = [-10,-5,0,10]
 
 
     #测试机加噪声
@@ -111,7 +111,7 @@ if __name__ == "__main__":
     # Generate model configuration
     model_config = (
         ModelGenerator()
-        .set_model_type("DeepCNN")#SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC My_transform_Model
+        .set_model_type("My_transform_Model")#SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC My_transform_Model
         .set_diff_method("root_music")# root_music esprit
         .set_tau(8)
         .set_model(system_model_params)

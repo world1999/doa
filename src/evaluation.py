@@ -104,7 +104,7 @@ def evaluate_dnn_model(
                     angles = np.linspace(-15,  15, system_model_params.grid_size)
                     predictions_norm = DOA_predictions / np.max(DOA_predictions)
                     selected_peaks, peak_angles = detect_top_peaks(
-                        predictions_norm, angles, min_distance=5, top_k=2
+                        predictions_norm, angles, min_distance=2, top_k=2
                     )
                     DOA_predictions = peak_angles * D2R
                     DOA_predictions = torch.tensor(DOA_predictions,  device=device).view(1, -1)
@@ -178,7 +178,7 @@ def evaluate_dnn_model(
                             predictions=spectrum,  # 概率谱数据
                             true_DOA=true_DOA_deg,  # 真实角度
                             roots=predicted_peaks_deg,  # 预测的峰值角度（用roots参数传递）
-                            algorithm="My_transform_Model",  # 算法标识
+                            algorithm="deepcnn",  # 算法标识
                             figures=figures,  # 图形容器
                             sample_idx=i  # 新增参数：样本索引   by j 224
                         )
@@ -237,7 +237,7 @@ def evaluate_transformer_model(
         for i, data in enumerate(dataset):
             X, DOA = data
             batch_size = DOA.shape[0]
-            test_length += batch_size
+            # test_length += batch_size
             X = X.to(device)
             DOA = DOA.to(device)
 
@@ -268,7 +268,9 @@ def evaluate_transformer_model(
                 raise Exception(
                     f"evaluate_dnn_model: Model type {model_type} is not defined"
                 )
-
+            if DOA_predictions.numel()  == 0:  # 自动兼容CPU/GPU张量
+                continue  # 跳过当前样本/批次
+            test_length += batch_size
             # 计算损失
             if model_type.startswith("My_transform_Model") and isinstance(criterion, RMSPELoss):
                 eval_loss = criterion(DOA_predictions.float(), DOA.float())

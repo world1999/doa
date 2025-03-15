@@ -99,7 +99,7 @@ def plot_My_transform_Model_spectrum(system_model_params: SystemModelParams,pred
     #     figures["comparison_key"] = {'fig': None, 'ax': None}
     # 创建图形对象
     if figures[comparison_key]["fig"] is None:
-        figures[comparison_key]["fig"] = plt.figure(figsize=(10, 6))
+        figures[comparison_key]["fig"] = plt.figure(figsize=(4, 2.5))
         figures[comparison_key]["ax"] = figures[comparison_key]["fig"].add_subplot(111)
     ax = figures[comparison_key]["ax"]
     predictions_norm=predictions/ np.max(predictions)
@@ -181,8 +181,8 @@ def plot_My_transform_Model_spectrum(system_model_params: SystemModelParams,pred
 
     # 配置坐标轴
 
-    ax.set_xlim(-90, 90)
-    ax.set_xticks(np.arange(-90, 91, 30))
+    ax.set_xlim(-20, 20)
+    ax.set_xticks(np.arange(-20, 21, 5))
     ax.set_xlabel("Azimuth Angle [deg]", fontsize=12)
     ax.set_ylabel("Normalized Amplitude", fontsize=12)
     ax.grid(True, alpha=0.4)
@@ -233,7 +233,7 @@ def plot_DeepCNN_spectrum1(system_model_params: SystemModelParams,predictions: n
 
     # 创建图形对象
     if figures[comparison_key]["fig"] is None:
-        figures[comparison_key]["fig"] = plt.figure(figsize=(10, 6))
+        figures[comparison_key]["fig"] = plt.figure(figsize=(4, 2.5))
         figures[comparison_key]["ax"] = figures[comparison_key]["fig"].add_subplot(111)
     ax = figures[comparison_key]["ax"]
 
@@ -278,8 +278,8 @@ def plot_DeepCNN_spectrum1(system_model_params: SystemModelParams,predictions: n
                    label='Ground Truth' if i == 0 else None)
 
     # 布局标准化
-    ax.set_xlim(-90, 90)
-    ax.set_xticks(np.arange(-90, 91, 30))
+    ax.set_xlim(-20, 20)
+    ax.set_xticks(np.arange(-20, 21, 5))
     ax.set_xlabel("Azimuth  Angle [deg]", fontsize=12)
     ax.set_ylabel("Normalized  Power", fontsize=12)  # 修改坐标轴标签
     ax.grid(True, alpha=0.4)
@@ -434,7 +434,7 @@ def plot_mvdr_spectrum(system_model, figures: dict, spectrum: np.ndarray,
         figures[comparison_key] = {'fig': None, 'ax': None}
     # 创建图形对象
     if figures[comparison_key]["fig"] is None:
-        figures[comparison_key]["fig"] = plt.figure(figsize=(10, 6))
+        figures[comparison_key]["fig"] = plt.figure(figsize=(4, 2.5))
         figures[comparison_key]["ax"] = figures[comparison_key]["fig"].add_subplot(111)
     ax = figures[comparison_key]["ax"]
 
@@ -482,8 +482,8 @@ def plot_mvdr_spectrum(system_model, figures: dict, spectrum: np.ndarray,
 
 
     # 同步坐标轴设置（避免重复设置）
-    ax.set_xlim(-90, 90)
-    ax.set_xticks(np.arange(-90, 91, 30))
+    ax.set_xlim(-20, 20)
+    ax.set_xticks(np.arange(-20, 21, 5))
     ax.set_ylabel("Normalized Amplitude", fontsize=12)
     # 保存当前样本的图
     if figures[comparison_key]["fig"] is not None:
