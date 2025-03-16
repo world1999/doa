@@ -98,32 +98,62 @@ def create_dataset(
     # Generate permutations for CNN-based model training datasets
     if (model_type.startswith(("My_transform_Model", "DeepCNN")) and
             phase.startswith("train")):
-        doa_permutations = []
-        angles_grid = np.linspace(start=-15, stop=15, num=system_model_params.grid_size)
-        for comb in itertools.combinations(angles_grid, system_model_params.M):
-            doa_permutations.append(list(comb))
+        # 参数设置（添加到系统参数中）
+        total_samples = samples_size  # 自定义样本总数
+        allow_duplicates = True  # 允许重复选择相同组合
 
-    # Training phase for CNN-based models
-    if (model_type.startswith(("My_transform_Model", "DeepCNN")) and
-            phase.startswith("train")):
-        for i, doa in tqdm(enumerate(doa_permutations)):
+        # 生成全排列组合
+        angles_grid = np.linspace(-15, 15, system_model_params.grid_size)
+        all_combinations = list(itertools.combinations(angles_grid, system_model_params.M))
+
+        # 创建随机选择器
+        rng = np.random.default_rng(seed=42)  # 可设置随机种子
+        selected_indices = rng.choice(len(all_combinations),
+                                      size=total_samples,
+                                      replace=allow_duplicates)
+
+        # 训练数据生成流程
+        for idx in tqdm(selected_indices):
+            doa = list(all_combinations[idx])
             samples_model.set_doa(doa)
+
+            # 信号生成（带随机性）
+            # X = torch.tensor(
+            #     samples_model.samples_creation(
+            #         noise_mean=0,
+            #         noise_variance=rng.uniform(0.8, 1.2),  # 随机噪声方差
+            #         signal_mean=0,
+            #         signal_variance=rng.uniform(0.8, 1.2)  # 随机信号强度
+            #     )[0],
+            #     dtype=torch.complex64,
+            # )
             X = torch.tensor(
                 samples_model.samples_creation(
                     noise_mean=0, noise_variance=1, signal_mean=0, signal_variance=1
                 )[0],
                 dtype=torch.complex64,
             )
-            # Model-specific transformation
+
+            # 模型特定预处理
             if model_type.startswith("My_transform_Model"):
-                X_model = create_rx_tensor(X)  # 4-channel for My_transform_Model
+                X_model = create_rx_tensor(X)
             elif model_type.startswith("DeepCNN"):
-                X_model = create_cov_tensor(X)  # 3-channel for DeepCNN
+                X_model = create_cov_tensor(X)
 
             # Ground-truth creation (One-Hot encoding)
             Y = torch.zeros_like(torch.tensor(angles_grid))
             for angle in doa:
                 Y[list(angles_grid).index(angle)] = 1
+
+            # # 动态软标签生成
+            # Y = torch.zeros(len(angles_grid))
+            # sigma = rng.uniform(1.5, 2.5)  # 随机核宽度
+            # for theta in doa:
+            #     distances = torch.exp(-torch.abs(torch.tensor(angles_grid) - theta) ** 2 / (2 * sigma ** 2))
+            #     Y += distances
+            # Y /= Y.max()
+
+
 
             # 使用高斯核函数生成软标签
             #     # Ground-truth creation (One-Hot encoding)
@@ -147,6 +177,59 @@ def create_dataset(
 
             model_dataset.append((X_model, Y))
             generic_dataset.append((X, Y))
+
+
+
+##这是遍历每个角度进行生成，每个角度只生成一个样本
+    # doa_permutations = []
+    # angles_grid = np.linspace(start=-15, stop=15, num=system_model_params.grid_size)
+    # for comb in itertools.combinations(angles_grid, system_model_params.M):
+    #     doa_permutations.append(list(comb))
+    #
+    # # Training phase for CNN-based models
+    # if (model_type.startswith(("My_transform_Model", "DeepCNN")) and
+    #         phase.startswith("train")):
+    #     for i, doa in tqdm(enumerate(doa_permutations)):
+    #         samples_model.set_doa(doa)
+    #         X = torch.tensor(
+    #             samples_model.samples_creation(
+    #                 noise_mean=0, noise_variance=1, signal_mean=0, signal_variance=1
+    #             )[0],
+    #             dtype=torch.complex64,
+    #         )
+    #         # Model-specific transformation
+    #         if model_type.startswith("My_transform_Model"):
+    #             X_model = create_rx_tensor(X)  # 4-channel for My_transform_Model
+    #         elif model_type.startswith("DeepCNN"):
+    #             X_model = create_cov_tensor(X)  # 3-channel for DeepCNN
+    #
+    #         # Ground-truth creation (One-Hot encoding)
+    #         Y = torch.zeros_like(torch.tensor(angles_grid))
+    #         for angle in doa:
+    #             Y[list(angles_grid).index(angle)] = 1
+    #
+    #         # 使用高斯核函数生成软标签
+    #         #     # Ground-truth creation (One-Hot encoding)
+    #         # Y = torch.zeros_like(torch.tensor(angles_grid))
+    #         # sigma = 2.0  # 可调整的核函数宽度参数
+    #         # angles_grid_tensor = torch.tensor(angles_grid, dtype=torch.float16)
+    #         #
+    #         # for i, grid_angle in enumerate(angles_grid_tensor):
+    #         #     # 对每个网格点,计算与所有真实角度的高斯核函数值之和
+    #         #     kernel_sum = 0
+    #         #     for theta in doa:
+    #         #         # 将theta转换为tensor并确保类型匹配
+    #         #         theta_tensor = torch.tensor(theta, dtype=torch.float16)
+    #         #         # 计算高斯核函数
+    #         #         kernel = torch.exp(-(grid_angle - theta_tensor) ** 2 / (2 * sigma ** 2))
+    #         #         kernel_sum += kernel
+    #         #     Y[i] = kernel_sum
+    #         #
+    #         # # 归一化处理(可选)
+    #         # Y = Y / torch.max(Y)
+    #
+    #         model_dataset.append((X_model, Y))
+    #         generic_dataset.append((X, Y))
 
     # Test phase or non-CNN models
     else:

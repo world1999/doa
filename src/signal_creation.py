@@ -58,6 +58,7 @@ class Samples(SystemModel):
             doa (np.ndarray): Array containing the DOA values.
 
         """
+        # gap=self.params.gap
 
         def create_doa_with_gap(gap: float):
             """Create angles with a value gap.
@@ -72,6 +73,7 @@ class Samples(SystemModel):
 
             """
             M = self.params.M
+
             while True:
                 DOA = np.round(np.random.rand(M) * 30, decimals=2) - 15
                 DOA.sort()
@@ -86,7 +88,7 @@ class Samples(SystemModel):
 
         if doa == None:
             # Generate angels with gap greater than 0.2 rad (nominal case)
-            self.doa = np.array(create_doa_with_gap(gap=2)) * D2R
+            self.doa = np.array(create_doa_with_gap(gap=self.params.gap)) * D2R
         else:
             # Generate
             self.doa = np.array(doa) * D2R

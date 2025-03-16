@@ -80,31 +80,28 @@ if __name__ == "__main__":
     #     "EVALUATE_MODE": True,  # Evaluating desired algorithms
     # }
 
-    # Saving simulation scores to external file
-    if commands["SAVE_TO_FILE"]:
-        file_path = (
-            simulations_path / "results" / "scores" / Path(dt_string_for_save + ".txt")
-        )
-        sys.stdout = open(file_path, "w")
+
     # Define system model parameters
     base_params = (
         SystemModelParams()
         .set_parameter("N", 16)
         .set_parameter("M", 2)
         .set_parameter("T", 100)
-        .set_parameter("grid_size", 121)  # 设置网格点数量
+        .set_parameter("grid_size", 61)  # 设置网格点数量
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
         .set_parameter("eta", 0)
         .set_parameter("bias", 0)
         .set_parameter("sv_noise_var", 0)
+        .set_parameter("gap", 10)
     )
-    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3150944)#评估时加载的模型
+    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3161612)#评估时加载的模型
     # 定义需要遍历的snr值列表
     # test_snr = range(-13,6,1)
     # test_snr = [-10,-5,0,10]
-    test_snr = range(-10,11,1)
+    test_snr = range(-10,6,1)
     # test_snr=[0]
+
     for snr in test_snr:
 
         system_model_params1 = copy.deepcopy(base_params).set_parameter("snr", snr)#测试集生成需要的参数
@@ -113,24 +110,31 @@ if __name__ == "__main__":
         # Generate model configuration
         model_config = (
             ModelGenerator()
-            .set_model_type("My_transform_Model")#SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC  My_transform_Model
+            .set_model_type("DeepCNN")#SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC  My_transform_Model
             .set_diff_method("root_music")# root_music esprit
             .set_tau(8)
             .set_model(system_model_params)
         )
         # Define samples size
-        samples_size = 50000  # Overall dateset size
+        samples_size = 30000  # Overall dateset size
         train_test_ratio = 0.0002  # training and testing datasets ratio
         # Sets simulation filename
         simulation_filename = get_simulation_filename(
             system_model_params=system_model_params, model_config=model_config
         )
+        # Saving simulation scores to external file
+        if commands["SAVE_TO_FILE"]:
+            file_path = (
+                    simulations_path / "results" / "scores" / Path(dt_string_for_save + f"test_{model_config.model_type}_{system_model_params.grid_size}_{samples_size}_model={system_model_params.snr}_gap={system_model_params.gap}.txt")
+            )
+            sys.stdout = open(file_path, "w")
         # Print new simulation intro
         print("------------------------------------")
         print("---------- New Simulation ----------")
         print("------------------------------------")
         print("date and time =", dt_string)
         # print(f"SNR 值: {system_model_params.snr}")
+        print(f'modelgrid_size: {system_model_params.grid_size}')
         # Initialize seed
         set_unified_seed()
         # Datasets creation
