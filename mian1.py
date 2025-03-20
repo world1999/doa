@@ -1,4 +1,4 @@
-"""Subspace-Net main script 
+"""Subspace-Net main script
     Details
     -------
     Name: main.py
@@ -11,7 +11,7 @@
     This script allows the user to apply the proposed algorithms,
     by wrapping all the required procedures and parameters for the simulation.
     This scripts calls the following functions:
-        * create_dataset: For creating training and testing datasets 
+        * create_dataset: For creating training and testing datasets
         * training: For training DR-MUSIC model
         * evaluate_dnn_model: For evaluating subspace hybrid models
 
@@ -86,7 +86,7 @@ if __name__ == "__main__":
         SystemModelParams()
         .set_parameter("N", 16)
         .set_parameter("M", 2)
-        .set_parameter("T", 1000)
+        .set_parameter("T", 100)
         .set_parameter("grid_size", 31)  # 设置网格点数量
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
@@ -95,18 +95,15 @@ if __name__ == "__main__":
         .set_parameter("sv_noise_var", 0)
         .set_parameter("gap", 10)
     )
-    # test_mode=[3161222,3161612,3161509,3161318]
-    # grid_use=[31,61,121,241]
-    test_mode = [3191427]
-    grid_use = [61]
-    snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
+    test_mode=[3171341,3171342,3171343,3171344]
+    grid_use=[61,61,61,61]
     for i,test_mode_snr in enumerate(test_mode):
         base_params= copy.deepcopy(base_params).set_parameter("grid_size", grid_use[i])
         system_model_params = copy.deepcopy(base_params).set_parameter("snr", test_mode_snr)#评估时加载的模型d:3161222 3161612 3161509 3161318
         # 定义需要遍历的snr值列表 t:3161845  3162036 3162104 3162138
         # test_snr = range(-13,6,1)
         # test_snr = [-10,-5,0,10]
-        test_snr = range(-10,-9,1)
+        test_snr = range(-10,11,1)
         # test_snr=[10]
         # Define samples size
         samples_size = 30000  # Overall dateset size
@@ -114,7 +111,7 @@ if __name__ == "__main__":
         # Generate model configuration
         model_config = (
             ModelGenerator()
-            .set_model_type("DeepCNN")  # SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC  My_transform_Model
+            .set_model_type("My_transform_Model")  # SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC  My_transform_Model
             .set_diff_method("root_music")  # root_music esprit
             .set_tau(8)
             .set_model(system_model_params)

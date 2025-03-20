@@ -36,6 +36,8 @@ from src.plotting import initialize_figures
 from pathlib import Path
 from src.models import ModelGenerator
 from src.model_transform import My_transform_Model
+import yaml
+
 # Initialization
 warnings.simplefilter("ignore")
 os.system("cls||clear")
@@ -48,13 +50,21 @@ if __name__ == "__main__":
     datasets_path = external_data_path / "datasets" / scenario_data_path
     simulations_path = external_data_path / "simulations"
     saving_path = external_data_path / "weights"
-    # create folders if not exists
-    datasets_path.mkdir(parents=True, exist_ok=True)
-    (datasets_path / "train").mkdir(parents=True, exist_ok=True)
-    (datasets_path / "test").mkdir(parents=True, exist_ok=True)
-    datasets_path.mkdir(parents=True, exist_ok=True)
-    simulations_path.mkdir(parents=True, exist_ok=True)
-    saving_path.mkdir(parents=True, exist_ok=True)
+    
+    # 创建路径的封装函数
+    def create_directories(*paths):
+        for path in paths:
+            path.mkdir(parents=True, exist_ok=True)
+    
+    # 统一创建目录
+    create_directories(
+        datasets_path,
+        datasets_path / "train",
+        datasets_path / "test",
+        simulations_path,
+        saving_path,
+        saving_path / "final_models"
+    )
     # Initialize time and date
     now = datetime.now()
     dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
@@ -66,8 +76,8 @@ if __name__ == "__main__":
         "CREATE_DATA": True,  # Creating new dataset
         "LOAD_DATA": False,  # Loading data from exist dataset
         "LOAD_MODEL": False,  # Load specific model for training
-        "TRAIN_MODEL":True,  # Applying training operation
-        "SAVE_MODEL": True ,  # Saving tuned model
+        "TRAIN_MODEL": True,  # Applying training operation
+        "SAVE_MODEL": True,  # Saving tuned model
         "EVALUATE_MODE": False,  # Evaluating desired algorithms
     }
     #训练
@@ -89,268 +99,283 @@ if __name__ == "__main__":
     #     sys.stdout = open(file_path, "w")
     # Define system model parameters
 
-    base_params = (   #by j1 start    训练模型用
+    # 从配置文件加载参数
+    with open('config.yml') as f:
+        config = yaml.safe_load(f)
+    
+    test_mode = config['training_params']['test_modes']
+    grid_use = config['training_params']['grid_sizes']
+    snr_values_use = config['training_params']['snr_values']
+    
+    # 替换原有参数定义
+    base_params = (
         SystemModelParams()
-        .set_parameter("N", 16)
-        .set_parameter("M", 2)
-        .set_parameter("T", 100)
-        .set_parameter("grid_size", 61)  # 添加网格点参数
-        .set_parameter("signal_type", "NarrowBand")
-        .set_parameter("signal_nature", "non-coherent")
-        .set_parameter("eta", 0)
-        .set_parameter("bias", 0)
-        .set_parameter("sv_noise_var", 0)
+        .set_parameter("N", config['model_config']['base_params']['N'])
+        .set_parameter("M", config['model_config']['base_params']['M'])
+        .set_parameter("T", config['model_config']['base_params']['T'])
+        .set_parameter("grid_size", config['model_config']['base_params']['grid_size'])
+        .set_parameter("signal_type", config['model_config']['base_params']['signal_type'])
+        .set_parameter("signal_nature", config['model_config']['base_params']['signal_nature'])
+        .set_parameter("eta", config['model_config']['base_params']['eta'])
+        .set_parameter("bias", config['model_config']['base_params']['bias'])
+        .set_parameter("sv_noise_var", config['model_config']['base_params']['sv_noise_var'])
+        .set_parameter("gap", config['model_config']['base_params']['gap'])
     )
-    system_model_params = copy.deepcopy(base_params).set_parameter("snr", 3161612)##多个数据集的训练过程日志和模型记录的参数 -20 只做记录用
-    # 定义需要遍历的snr值列表
-    snr_values = [-10,-5,0]
+    test_mode = [3191427]#训练模型用
+    grid_use = [61]
+    # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
+    snr_values_use = [[-10]]
+    for i, test_mode_snr in enumerate(test_mode):
+        base_params = copy.deepcopy(base_params).set_parameter("grid_size", grid_use[i])
+        system_model_params = copy.deepcopy(base_params).set_parameter("snr",
+                                                                       test_mode_snr)  ##多个数据集的训练过程日志和模型记录的参数 -20 只做记录用
+        # 定义需要遍历的snr值列表
+        snr_values = snr_values_use[i]
 
-
-    #测试机加噪声
-    system_model_params1 = copy.deepcopy(base_params).set_parameter("snr", 0) # 只做测试用
-    # Generate model configuration
-    model_config = (
-        ModelGenerator()
-        .set_model_type("DeepCNN")#SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC My_transform_Model
-        .set_diff_method("root_music")# root_music esprit
-        .set_tau(8)
-        .set_model(system_model_params)
-    )
-    # Define samples size
-    samples_size = 30000  # Overall dateset size
-    train_test_ratio = 0.002  # training and testing datasets ratio
-    # Sets simulation filename
-    simulation_filename = get_simulation_filename(
-        system_model_params=system_model_params, model_config=model_config
-    )
-    # Saving simulation scores to external file
-    if commands["SAVE_TO_FILE"]:
-        file_path = (
-                simulations_path / "results" / "scores" / Path(dt_string_for_save + f"train_{model_config.model_type}_{system_model_params.grid_size}_{samples_size}.txt")
+        #测试机加噪声
+        system_model_params1 = copy.deepcopy(base_params).set_parameter("snr", 0)  # 只做测试用
+        # Generate model configuration
+        model_config = (
+            ModelGenerator()
+            .set_model_type("DeepCNN")  #SubspaceNet  DeepCNN DA-MUSIC   DeepRootMUSIC My_transform_Model
+            .set_diff_method("root_music")  # root_music esprit
+            .set_tau(8)
+            .set_model(system_model_params)
         )
-        sys.stdout = open(file_path, "w")
-    # Print new simulation intro
-    print("------------------------------------")
-    print("---------- New Simulation ----------")
-    print("------------------------------------")
-    print("date and time =", dt_string)
-    print(f"train_snr_values = {snr_values}")
-    print(f"modelname_SNR 值: {system_model_params.snr}")
-    print(f'modelgrid_size: {system_model_params.grid_size}')
-    # Initialize seed
-    set_unified_seed()
-    # Datasets creation
-    if commands["CREATE_DATA"]:
-        # Define which datasets to generate
-        create_training_data = True  # Flag for creating training data
-        create_testing_data = True  # Flag for creating test data
-        print("Creating Data...")
-        if create_training_data:
-            # Generate training dataset
-            # 生成参数组列表
-            param_groups = []
-            for snr in snr_values:
-                new_params = copy.deepcopy(base_params).set_parameter("snr", snr)
-                param_groups.append({
-                    "system_model_params": new_params,
-                })
-            # 生成合并数据集
-            combined_dataset = []
+        # Define samples size
+        samples_size = 30000  # Overall dateset size
+        train_test_ratio = 0.002  # training and testing datasets ratio
+        # Sets simulation filename
+        simulation_filename = get_simulation_filename(
+            system_model_params=system_model_params, model_config=model_config
+        )
+        # Saving simulation scores to external file
+        if commands["SAVE_TO_FILE"]:
+            file_path = (
+                    simulations_path / "results" / "train_scores" / Path(
+                dt_string_for_save + f"train_{model_config.model_type}_{system_model_params.grid_size}_{samples_size}_model={system_model_params.snr}_gap={system_model_params.gap}.txt")
+            )
+            sys.stdout = open(file_path, "w")
+        # Print new simulation intro
+        print("------------------------------------")
+        print("---------- New Simulation ----------")
+        print("------------------------------------")
+        print("date and time =", dt_string)
+        print(f"train_snr_values = {snr_values}")
+        print(f"modelname_SNR 值: {system_model_params.snr}")
+        print(f'modelgrid_size: {system_model_params.grid_size}')
+        # Initialize seed
+        set_unified_seed()
+        # Datasets creation
+        if commands["CREATE_DATA"]:
+            # Define which datasets to generate
+            create_training_data = True  # Flag for creating training data
+            create_testing_data = True  # Flag for creating test data
+            print("Creating Data...")
+            if create_training_data:
+                # Generate training dataset
+                # 生成参数组列表
+                param_groups = []
+                for snr in snr_values:
+                    new_params = copy.deepcopy(base_params).set_parameter("snr", snr)
+                    param_groups.append({
+                        "system_model_params": new_params,
+                    })
+                # 生成合并数据集
+                combined_dataset = []
 
-            for group in param_groups:
-                # 生成单个数据集
-                train_data, _, _ = create_dataset(
-                    system_model_params=group["system_model_params"],
-                    samples_size=samples_size,
+                for group in param_groups:
+                    # 生成单个数据集
+                    train_data, _, _ = create_dataset(
+                        system_model_params=group["system_model_params"],
+                        samples_size=samples_size,
+                        model_type=model_config.model_type,
+                        tau=model_config.tau,
+                        save_datasets=False,
+                        datasets_path=datasets_path,
+                        true_doa=None,
+                        phase="train"
+                    )
+
+                    # 合并数据集
+                    combined_dataset.extend(train_data)
+
+                    # 内存清理
+                    del train_data
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                # train_dataset, _, _ = create_dataset(
+                #     system_model_params=system_model_params,
+                #     samples_size=samples_size,
+                #     model_type=model_config.model_type,
+                #     tau=model_config.tau,
+                #     save_datasets=True,
+                #     datasets_path=datasets_path,
+                #     true_doa=None,
+                #     phase="train",
+                # )
+            if create_testing_data:
+                # Generate test dataset
+                test_dataset, generic_test_dataset, samples_model = create_dataset(
+                    system_model_params=system_model_params1,
+                    samples_size=int(train_test_ratio * samples_size),
                     model_type=model_config.model_type,
                     tau=model_config.tau,
-                    save_datasets=False,
+                    save_datasets=True,
                     datasets_path=datasets_path,
                     true_doa=None,
-                    phase="train"
+                    phase="test",
                 )
-
-                # 合并数据集
-                combined_dataset.extend(train_data)
-
-                # 内存清理
-                del train_data
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            # train_dataset, _, _ = create_dataset(
-            #     system_model_params=system_model_params,
-            #     samples_size=samples_size,
-            #     model_type=model_config.model_type,
-            #     tau=model_config.tau,
-            #     save_datasets=True,
-            #     datasets_path=datasets_path,
-            #     true_doa=None,
-            #     phase="train",
-            # )
-        if create_testing_data:
-            # Generate test dataset
-            test_dataset, generic_test_dataset, samples_model = create_dataset(
-                system_model_params=system_model_params1,
-                samples_size=int(train_test_ratio * samples_size),
-                model_type=model_config.model_type,
-                tau=model_config.tau,
-                save_datasets=True,
-                datasets_path=datasets_path,
-                true_doa=None,
-                phase="test",
-            )
-    # Datasets loading
-    elif commands["LOAD_DATA"]:
-        (
-            train_dataset,
-            test_dataset,
-            generic_test_dataset,
-            samples_model,
-        ) = load_datasets(
-            system_model_params=system_model_params,
-            model_type=model_config.model_type,
-            samples_size=samples_size,
-            datasets_path=datasets_path,
-            train_test_ratio=train_test_ratio,
-            is_training=True,# 训练时记得在设置
-        )
-
-    # Training stage
-    if commands["TRAIN_MODEL"]:
-        # Assign the training parameters object
-        simulation_parameters = (
-            TrainingParams()
-            .set_batch_size(1024)
-            .set_epochs(80)
-            .set_model(model=model_config)
-            .set_optimizer(optimizer="Adam", learning_rate=0.0001, weight_decay=1e-7)#learning_rate=0.00001, weight_decay=1e-9
-            .set_training_dataset(combined_dataset)  #by j
-            .set_schedular(step_size=15, gamma=0.5)
-            .set_criterion()#自动设置成nn.BCELoss()  非常关键，训练的时候要设置
-        )
-        if commands["LOAD_MODEL"]:
-            simulation_parameters.load_model(
-                loading_path=saving_path / "final_models" / simulation_filename
-            )
-        # Print training simulation details
-        simulation_summary(
-            system_model_params=base_params,
-            model_type=model_config.model_type,
-            parameters=simulation_parameters,
-            phase="training",
-        )
-        # Perform simulation training and evaluation stages
-        model, loss_train_list, loss_valid_list = train(
-            system_model_params=base_params,
-            training_parameters=simulation_parameters,
-            model_name=simulation_filename,
-            saving_path=saving_path,
-        )
-        # Save model weights
-        if commands["SAVE_MODEL"]:
-            # 确保目标目录存在 by j
-            final_models_dir = saving_path / 'final_models'
-            final_models_dir.mkdir(parents=True, exist_ok=True)
-            torch.save(
-                model.state_dict(),
-                final_models_dir / Path(simulation_filename),
-            )
-        # Plots saving
-        if commands["SAVE_TO_FILE"]:
-            # 确保路径存在
-            outplot_path = Path(simulations_path) / 'results' / 'plot'
-            outplot_path.mkdir(parents=True, exist_ok=True)
-            plt.savefig(
-                outplot_path / Path(dt_string_for_save + r".png")
-            )
-        else:
-            plt.show()
-
-    # Evaluation stage
-    if commands["EVALUATE_MODE"]:
-        # Initialize figures dict for plotting
-        figures = initialize_figures()
-        # figures='comparison'#进行不同方法的对比
-        # Define loss measure for evaluation
-        criterion, subspace_criterion = set_criterions("rmse")#训练的是时候是交叉熵，只有测试的时候用rmse
-        # Load datasets for evaluation
-        if not (commands["CREATE_DATA"] or commands["LOAD_DATA"]):
-            test_dataset, generic_test_dataset, samples_model = load_datasets(
+        # Datasets loading
+        elif commands["LOAD_DATA"]:
+            (
+                train_dataset,
+                test_dataset,
+                generic_test_dataset,
+                samples_model,
+            ) = load_datasets(
                 system_model_params=system_model_params,
                 model_type=model_config.model_type,
                 samples_size=samples_size,
                 datasets_path=datasets_path,
                 train_test_ratio=train_test_ratio,
+                is_training=True,  # 训练时记得在设置
             )
 
-        # Generate DataLoader objects
-        model_test_dataset = torch.utils.data.DataLoader(
-            test_dataset, batch_size=1, shuffle=False, drop_last=False
-        )
-        generic_test_dataset = torch.utils.data.DataLoader(
-            generic_test_dataset, batch_size=1, shuffle=False, drop_last=False
-        )
-        # Load pre-trained model
-        if not commands["TRAIN_MODEL"]:
-            # Define an evaluation parameters instance
+        # Training stage
+        if commands["TRAIN_MODEL"]:
+            # Assign the training parameters object
             simulation_parameters = (
                 TrainingParams()
+                .set_batch_size(1024)
+                .set_epochs(10)
                 .set_model(model=model_config)
-                .load_model(
-                    loading_path=saving_path
-                    / "final_models"
-                    / simulation_filename
-                )
+                .set_optimizer(optimizer="Adam", learning_rate=0.0001,
+                               weight_decay=1e-7)  #learning_rate=0.00001, weight_decay=1e-9
+                .set_training_dataset(combined_dataset)  #by j
+                .set_schedular(step_size=15, gamma=0.5)
+                .set_criterion()  #自动设置成nn.BCELoss()  非常关键，训练的时候要设置
             )
-            model = simulation_parameters.model
-        # print simulation summary details
-        simulation_summary(
-            system_model_params=system_model_params1,###总结训练过程
-            model_type=model_config.model_type,
-            phase="evaluation",
-            parameters=simulation_parameters,
-        )
-        # Evaluate DNN models, augmented and subspace methods
-        evaluate(
-            system_model_params=system_model_params1,
-            model=model,
-            model_type=model_config.model_type,
-            model_test_dataset=model_test_dataset,
-            generic_test_dataset=generic_test_dataset,
-            criterion=criterion,
-            subspace_criterion=subspace_criterion,
-            system_model=samples_model,
-            figures=figures,
-            # plot_spec=True,
-            plot_spec=False,
-            # augmented_methods='mvdr'
-            training_params=simulation_parameters,
-        )
-        # 在主要评估代码最后添加：
-        if "comparison" in figures and figures["comparison"]["fig"] is not None:
-            ax = figures["comparison"]["ax"]
-            # 去重图例
-            handles, labels = ax.get_legend_handles_labels()
-            unique_labels = dict(zip(labels, handles))
-            # 设置 y 轴范围（可选）
-            ax.set_ylim(0, 1.2)  # 归一化数据，一般最大值为 1，稍微放宽 20%
-            # **将图例放在图像右侧外部**
-            ax.legend(loc='upper left', bbox_to_anchor=(1.05, 1), borderaxespad=0.)
-            # **调整布局，确保图例不会被裁剪**
-            plt.subplots_adjust(right=0.75)  # 让图像腾出右侧空间
+            if commands["LOAD_MODEL"]:
+                simulation_parameters.load_model(
+                    loading_path=saving_path / "final_models" / simulation_filename
+                )
+            # Print training simulation details
+            simulation_summary(
+                system_model_params=base_params,
+                model_type=model_config.model_type,
+                parameters=simulation_parameters,
+                phase="training",
+            )
+            # Perform simulation training and evaluation stages
+            model, loss_train_list, loss_valid_list = train(
+                system_model_params=base_params,
+                training_parameters=simulation_parameters,
+                model_name=simulation_filename,
+                saving_path=saving_path,
+            )
+            # Save model weights
+            if commands["SAVE_MODEL"]:
+                # 确保目标目录存在 by j
+                final_models_dir = saving_path / 'final_models'
+                final_models_dir.mkdir(parents=True, exist_ok=True)
+                torch.save(
+                    model.state_dict(),
+                    final_models_dir / Path(simulation_filename),
+                )
+            # Plots saving
+            if commands["SAVE_TO_FILE"]:
+                # 确保路径存在
+                outplot_path = Path(simulations_path) / 'results' / 'plot'
+                outplot_path.mkdir(parents=True, exist_ok=True)
+                plt.savefig(
+                    outplot_path / Path(dt_string_for_save + r".png")
+                )
+            else:
+                plt.show()
 
-            # 保存图像
-            from pathlib import Path
+        # Evaluation stage
+        if commands["EVALUATE_MODE"]:
+            # Initialize figures dict for plotting
+            figures = initialize_figures()
+            # figures='comparison'#进行不同方法的对比
+            # Define loss measure for evaluation
+            criterion, subspace_criterion = set_criterions("rmse")  #训练的是时候是交叉熵，只有测试的时候用rmse
+            # Load datasets for evaluation
+            if not (commands["CREATE_DATA"] or commands["LOAD_DATA"]):
+                test_dataset, generic_test_dataset, samples_model = load_datasets(
+                    system_model_params=system_model_params,
+                    model_type=model_config.model_type,
+                    samples_size=samples_size,
+                    datasets_path=datasets_path,
+                    train_test_ratio=train_test_ratio,
+                )
 
-            save_dir = Path("data/spectrums")
-            save_dir.mkdir(parents=True, exist_ok=True)
-            figures["comparison"]["fig"].savefig(save_dir / "cnn_mvdr_comparison.png",
-                                                 bbox_inches='tight',
-                                                 dpi=300)
-            plt.close(figures["comparison"]["fig"])
+            # Generate DataLoader objects
+            model_test_dataset = torch.utils.data.DataLoader(
+                test_dataset, batch_size=1, shuffle=False, drop_last=False
+            )
+            generic_test_dataset = torch.utils.data.DataLoader(
+                generic_test_dataset, batch_size=1, shuffle=False, drop_last=False
+            )
+            # Load pre-trained model
+            if not commands["TRAIN_MODEL"]:
+                # Define an evaluation parameters instance
+                simulation_parameters = (
+                    TrainingParams()
+                    .set_model(model=model_config)
+                    .load_model(
+                        loading_path=saving_path
+                                     / "final_models"
+                                     / simulation_filename
+                    )
+                )
+                model = simulation_parameters.model
+            # print simulation summary details
+            simulation_summary(
+                system_model_params=system_model_params1,  ###总结训练过程
+                model_type=model_config.model_type,
+                phase="evaluation",
+                parameters=simulation_parameters,
+            )
+            # Evaluate DNN models, augmented and subspace methods
+            evaluate(
+                system_model_params=system_model_params1,
+                model=model,
+                model_type=model_config.model_type,
+                model_test_dataset=model_test_dataset,
+                generic_test_dataset=generic_test_dataset,
+                criterion=criterion,
+                subspace_criterion=subspace_criterion,
+                system_model=samples_model,
+                figures=figures,
+                # plot_spec=True,
+                plot_spec=False,
+                # augmented_methods='mvdr'
+                training_params=simulation_parameters,
+            )
+            # 在主要评估代码最后添加：
+            if "comparison" in figures and figures["comparison"]["fig"] is not None:
+                ax = figures["comparison"]["ax"]
+                # 去重图例
+                handles, labels = ax.get_legend_handles_labels()
+                unique_labels = dict(zip(labels, handles))
+                # 设置 y 轴范围（可选）
+                ax.set_ylim(0, 1.2)  # 归一化数据，一般最大值为 1，稍微放宽 20%
+                # **将图例放在图像右侧外部**
+                ax.legend(loc='upper left', bbox_to_anchor=(1.05, 1), borderaxespad=0.)
+                # **调整布局，确保图例不会被裁剪**
+                plt.subplots_adjust(right=0.75)  # 让图像腾出右侧空间
 
+                # 保存图像
+                from pathlib import Path
 
+                save_dir = Path("data/spectrums")
+                save_dir.mkdir(parents=True, exist_ok=True)
+                figures["comparison"]["fig"].savefig(save_dir / "cnn_mvdr_comparison.png",
+                                                     bbox_inches='tight',
+                                                     dpi=300)
+                plt.close(figures["comparison"]["fig"])
 
-
-    plt.show()
-    print("end")
+        plt.show()
+        print("end")

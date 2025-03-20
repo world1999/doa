@@ -27,6 +27,8 @@ evaluate: Wrapper function for model and algorithm evaluations.
 
 
 """
+import time
+
 # Imports
 import torch.nn as nn
 from matplotlib import pyplot as plt
@@ -38,7 +40,7 @@ from src.criterions import RMSPE, MSPE
 from src.methods import MUSIC, RootMUSIC, Esprit, MVDR
 from src.utils import *
 from src.models import SubspaceNet
-from src.plotting import plot_spectrum, detect_top_peaks
+from src.plotting import plot_spectrum, detect_top_peaks, detect_top_peaks_gpu
 
 
 def evaluate_dnn_model(
@@ -101,11 +103,16 @@ def evaluate_dnn_model(
                     DOA_predictions = model_output
                 elif isinstance(criterion, (RMSPELoss, MSPELoss)):
                     DOA_predictions = model_output[0].cpu().numpy()
+                    # DOA_predictions = model_output[0]
                     angles = np.linspace(-15,  15, system_model_params.grid_size)
+                    # angles = torch.linspace(-15, 15, system_model_params.grid_size, device=device)
                     predictions_norm = DOA_predictions / np.max(DOA_predictions)
+                    # time1 = time.time()
                     selected_peaks, peak_angles = detect_top_peaks(
                         predictions_norm, angles, min_distance=2, top_k=2
                     )
+                    # time2=time.time()
+                    # duration=time2 - time1
                     DOA_predictions = peak_angles * D2R
                     DOA_predictions = torch.tensor(DOA_predictions,  device=device).view(1, -1)
                 else:
@@ -119,6 +126,7 @@ def evaluate_dnn_model(
                     f"evaluate_dnn_model: Model type {model_type} is not defined"
                 )
             if DOA_predictions.numel()  == 0:  # 自动兼容CPU/GPU张量
+                print(test_length)
                 continue  # 跳过当前样本/批次
             test_length += batch_size
             # 计算损失
@@ -786,8 +794,14 @@ def evaluate_model_based(
         elif algorithm.startswith("mvdr"):
             mvdr = MVDR(system_model)
             angels_deg = np.rad2deg(mvdr._angels)  # 角度转为度数
-            _, spectrum = mvdr.narrowband(X=X, mode="sample")
-            spectrum_norm = spectrum[7500:10500] / np.max(spectrum[7500:10500])
+            _, spectrum = mvdr.narrowband(X=X, mode="sample",eps=1)
+            # 计算角度范围对应的索引
+            start_angle = -15
+            end_angle = 15
+            start_idx = int((start_angle - (-90)) / 0.01)  # 7500
+            end_idx = int((end_angle - (-90)) / 0.01) + 1  # 10501
+            # spectrum_norm = spectrum[start_idx:end_idx] / np.max(spectrum[start_idx:end_idx])
+            spectrum_norm = spectrum[start_idx:end_idx]
             peaks = argrelextrema(spectrum_norm, np.greater)[0]
             peak_values = spectrum_norm[peaks]
             sorted_indices = np.argsort(peak_values)[::-1]
@@ -808,6 +822,7 @@ def evaluate_model_based(
         valid_true = true_angles[true_angles != -1]
         valid_pred = pred_angles[:len(valid_true)]  # 截取匹配数量的预测角度
         if len(valid_pred) < 2:
+            # print('跳过样本')
             continue  # 如果预测角度少于2个，跳过当前样本
 
         if len(valid_true) == 0:  # 无有效目标
@@ -825,6 +840,8 @@ def evaluate_model_based(
             # 检查是否存在一种顺序，每对差值都小于2°
             if (diff1_0 <= 1 and diff1_1 <= 1) or (diff2_0 <= 1 and diff2_1 <= 1):
                 correct_predictions += 1.0
+            # else:
+            #  print(f"预测角度: {valid_pred}, 真实角度: {valid_true}")
 
     # 计算平均损失和准确率
     average_loss = np.mean(loss_list) if loss_list else 0.0

@@ -62,6 +62,8 @@ config = {
     'lr': 0.001,
     'loss_weights': (100, 0.1)
 }
+
+
 def create_dataset(
         system_model_params: SystemModelParams,
         samples_size: float,
@@ -90,9 +92,47 @@ def create_dataset(
     --------
         tuple: (model_dataset, generic_dataset, samples_model) containing the desired datasets
     """
+
+    # 新增权重计算函数（保持代码复用性）
+    def compute_weights(X_tensor, system_model, angles_grid):
+        """计算MVDR权重矩阵"""
+        X = X_tensor.numpy()  # 输入形状(N, T)
+        N, T = X.shape
+        eps = 1e-6
+
+        # 协方差矩阵计算
+        covariance = (X @ X.conj().T) / T
+        diag_load = eps * np.trace(covariance) * np.eye(N)
+        inv_cov = np.linalg.pinv(covariance + diag_load)
+
+        # 获取系统参数
+        f = system_model.max_freq[system_model.params.signal_type]
+        weights = []
+
+        # 遍历所有预定义角度
+        for angle in angles_grid:
+            # 导向矢量生成
+            a = system_model.steering_vec(
+                theta=np.deg2rad(angle),
+                f=f,
+                array_form="ULA",
+                nominal=True
+            ).reshape(-1, 1)
+
+            # MVDR权重计算
+            numerator = inv_cov @ a
+            denominator = a.conj().T @ inv_cov @ a
+            w = (numerator / denominator).squeeze()
+
+            # 实虚分离与展平
+            w_real_imag = np.hstack([w.real, w.imag]).flatten()
+            weights.append(w_real_imag)
+
+        return torch.FloatTensor(np.concatenate(weights))
     generic_dataset = []
     model_dataset = []
     samples_model = Samples(system_model_params)
+
     # if (model_type.startswith("OffgridDOA"))and phase.startswith("train"):
     #
     # Generate permutations for CNN-based model training datasets
@@ -133,7 +173,6 @@ def create_dataset(
                 )[0],
                 dtype=torch.complex64,
             )
-
             # 模型特定预处理
             if model_type.startswith("My_transform_Model"):
                 X_model = create_rx_tensor(X)
@@ -144,6 +183,8 @@ def create_dataset(
             Y = torch.zeros_like(torch.tensor(angles_grid))
             for angle in doa:
                 Y[list(angles_grid).index(angle)] = 1
+                # 新增权重计算
+            W = compute_weights(X, samples_model.system_model, angles_grid)
 
             # # 动态软标签生成
             # Y = torch.zeros(len(angles_grid))
@@ -258,6 +299,12 @@ def create_dataset(
 
             # Ground-truth creation (raw DOA values)
             Y = torch.tensor(samples_model.doa, dtype=torch.float64)
+            # 生成全排列组合
+            angles_grid = np.linspace(-15, 15, system_model_params.grid_size)
+            # 新增权重计算
+            W = compute_weights(X, samples_model.system_model, angles_grid)
+
+
             generic_dataset.append((X, Y))
             model_dataset.append((X_model, Y))
 
