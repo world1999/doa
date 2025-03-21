@@ -403,13 +403,13 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
                 def forward(self, pred, target):
                     return torch.sqrt(self.mse(pred, target) + self.eps)
             if training_params.model_type.startswith(("My_transform_Model", "DeepCNN")):
-                angle_loss = training_params.criterion(
-                    DOA_predictions.float(), DOA.float()
-                )
+                # angle_loss = training_params.criterion(
+                #     DOA_predictions.float(), DOA.float()
+                # )
                 # 初始化RMSE损失（需确保W存在且维度匹配）
                 weight_rmse = RMSELoss()(weight_output.float(), W.float())
                #双损失加权融合
-                train_loss =  angle_loss +  weight_rmse
+                train_loss =   weight_rmse#angle_loss +
                 # else:
             #     train_loss = training_params.criterion(DOA_predictions.float(), DOA.float())
             # Back-propagation stage
@@ -425,7 +425,7 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
             if training_params.model_type.startswith(("My_transform_Model", "DeepCNN")):
                 # BCE is averaged
                 overall_train_loss += train_loss.item() * len(data[0])
-                overall_train_angle_loss = angle_loss.item() * len(data[0])
+                # overall_train_angle_loss = angle_loss.item() * len(data[0])
                 overall_train_weight_loss = weight_rmse.item() * len(data[0])
             # elif training_params.model_type.startswith("My_transform_Model"):
             #     # BCE is averaged
@@ -435,7 +435,7 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
                 overall_train_loss += train_loss.item()
         # Average the epoch training loss
         overall_train_loss = overall_train_loss / train_length
-        overall_train_angle_loss= overall_train_angle_loss / train_length
+        # overall_train_angle_loss= overall_train_angle_loss / train_length
         overall_train_weight_loss= overall_train_weight_loss / train_length
         loss_train_list.append(overall_train_loss)
         # Update schedular
@@ -460,9 +460,14 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
             )
         loss_valid_list.append(valid_loss)
         # Report results
+        # print(
+        #     "epoch : {}/{}, Train loss = {:.6f},Train angle loss ={:.6f},Train weight loss ={:.6f}  Validation loss = {:.6f} ,valid angle loss ={:.6f},valid weight loss ={:.6f}  ".format(
+        #         epoch + 1, training_params.epochs, overall_train_loss,overall_train_angle_loss,overall_train_weight_loss, valid_loss,overall_angle_loss,overall_weight_loss
+        #     )
+        # )
         print(
-            "epoch : {}/{}, Train loss = {:.6f},Train angle loss ={:.6f},Train weight loss ={:.6f}  Validation loss = {:.6f} ,valid angle loss ={:.6f},valid weight loss ={:.6f}  ".format(
-                epoch + 1, training_params.epochs, overall_train_loss,overall_train_angle_loss,overall_train_weight_loss, valid_loss,overall_angle_loss,overall_weight_loss
+            "epoch : {}/{}, Train loss = {:.6f},Train weight loss ={:.6f}  Validation loss = {:.6f} ,valid angle loss ={:.6f},valid weight loss ={:.6f}  ".format(
+                epoch + 1, training_params.epochs, overall_train_loss,  valid_loss
             )
         )
         print("lr {}".format(training_params.optimizer.param_groups[0]["lr"]))
