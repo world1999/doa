@@ -79,18 +79,28 @@ def evaluate_dnn_model(
     D2R = np.pi  / 180  # 度到弧度的转换常数
     model.eval()
 
+    class RMSELoss(nn.Module):
+        def __init__(self, eps=1e-6):
+            super().__init__()
+            self.mse = nn.MSELoss()
+            self.eps = eps  # 数值稳定项
+
+        def forward(self, pred, target):
+            return torch.sqrt(self.mse(pred, target) + self.eps)
+
     with torch.no_grad():
         for i, data in enumerate(dataset):
             # if i <=11:
             #     continue
             # print(i)
-            X, DOA = data
+            X, DOA,W = data
             batch_size = DOA.shape[0]
             X = X.to(device)
             DOA = DOA.to(device)
+            W = W.to(device)
 
             # 获取模型输出
-            model_output = model(X)
+            model_output,weight_output = model(X)
             # # 检测全零输出（支持多设备）
             # if model_output.numel()  == 0:  # 自动兼容CPU/GPU张量
             #     continue  # 跳过当前样本/批次
@@ -134,7 +144,15 @@ def evaluate_dnn_model(
                 eval_loss = criterion(DOA_predictions.float(),  DOA.float())
             else:
                 eval_loss = criterion(DOA_predictions.float(),  DOA.float())
-            overall_loss += eval_loss.item()  * batch_size  # 按样本数加权
+            angle_loss = eval_loss
+            # 初始化RMSE损失（需确保W存在且维度匹配）
+            weight_rmse = RMSELoss()(weight_output.float(), W.float())
+            # 双损失加权融合
+            eval_loss = angle_loss + weight_rmse
+            # overall_loss += eval_loss.item()  * batch_size  # 按样本数加权
+            overall_loss += eval_loss.item() * batch_size  # 按样本数加权
+            overall_angle_loss = angle_loss.item() * batch_size
+            overall_weight_loss = weight_rmse.item() * batch_size
 
             # 计算正确率（新增核心逻辑）
             DOA_pred = DOA_predictions.cpu().numpy()
@@ -205,7 +223,7 @@ def evaluate_dnn_model(
     #         algorithm="SubNet+R-MUSIC",
     #         figures=figures,
     #     )
-    return overall_loss,accuracy
+    return overall_loss,overall_angle_loss,overall_weight_loss,accuracy
 
 def evaluate_transformer_model(
         system_model_params: SystemModelParams,
@@ -745,7 +763,7 @@ def evaluate_model_based(
     R2D = 180 / np.pi  # 弧度转度数（假设未定义时在此定义）
 
     for i, data in enumerate(dataset):
-        X, doa = data
+        X, doa,_ = data
         X = X[0]  # 取第一个样本
         total_samples += 1  # 单样本假设，doa为[1, num_sources]
 
@@ -964,7 +982,7 @@ def evaluate(
             system_model_params=system_model_params
         )
     elif training_params.model_type.startswith("DeepCNN"):
-        model_test_loss, acc = evaluate_dnn_model(
+        model_test_loss,overall_angle_loss,overall_weight_loss,acc = evaluate_dnn_model(
             model=model,
             dataset=model_test_dataset,
             criterion=criterion,

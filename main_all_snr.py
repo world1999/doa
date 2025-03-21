@@ -36,7 +36,6 @@ from src.plotting import initialize_figures
 from pathlib import Path
 from src.models import ModelGenerator
 from src.model_transform import My_transform_Model
-import yaml
 
 # Initialization
 warnings.simplefilter("ignore")
@@ -50,21 +49,13 @@ if __name__ == "__main__":
     datasets_path = external_data_path / "datasets" / scenario_data_path
     simulations_path = external_data_path / "simulations"
     saving_path = external_data_path / "weights"
-    
-    # 创建路径的封装函数
-    def create_directories(*paths):
-        for path in paths:
-            path.mkdir(parents=True, exist_ok=True)
-    
-    # 统一创建目录
-    create_directories(
-        datasets_path,
-        datasets_path / "train",
-        datasets_path / "test",
-        simulations_path,
-        saving_path,
-        saving_path / "final_models"
-    )
+    # create folders if not exists
+    datasets_path.mkdir(parents=True, exist_ok=True)
+    (datasets_path / "train").mkdir(parents=True, exist_ok=True)
+    (datasets_path / "test").mkdir(parents=True, exist_ok=True)
+    datasets_path.mkdir(parents=True, exist_ok=True)
+    simulations_path.mkdir(parents=True, exist_ok=True)
+    saving_path.mkdir(parents=True, exist_ok=True)
     # Initialize time and date
     now = datetime.now()
     dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
@@ -99,32 +90,24 @@ if __name__ == "__main__":
     #     sys.stdout = open(file_path, "w")
     # Define system model parameters
 
-    # 从配置文件加载参数
-    with open('config.yml') as f:
-        config = yaml.safe_load(f)
-    
-    test_mode = config['training_params']['test_modes']
-    grid_use = config['training_params']['grid_sizes']
-    snr_values_use = config['training_params']['snr_values']
-    
-    # 替换原有参数定义
-    base_params = (
+    base_params = (  #by j1 start    训练模型用
         SystemModelParams()
-        .set_parameter("N", config['model_config']['base_params']['N'])
-        .set_parameter("M", config['model_config']['base_params']['M'])
-        .set_parameter("T", config['model_config']['base_params']['T'])
-        .set_parameter("grid_size", config['model_config']['base_params']['grid_size'])
-        .set_parameter("signal_type", config['model_config']['base_params']['signal_type'])
-        .set_parameter("signal_nature", config['model_config']['base_params']['signal_nature'])
-        .set_parameter("eta", config['model_config']['base_params']['eta'])
-        .set_parameter("bias", config['model_config']['base_params']['bias'])
-        .set_parameter("sv_noise_var", config['model_config']['base_params']['sv_noise_var'])
-        .set_parameter("gap", config['model_config']['base_params']['gap'])
+        .set_parameter("N", 16)
+        .set_parameter("M", 2)
+        .set_parameter("T", 100)
+        .set_parameter("grid_size", 61)  # 添加网格点参数
+        .set_parameter("signal_type", "NarrowBand")
+        .set_parameter("signal_nature", "non-coherent")
+        .set_parameter("eta", 0)
+        .set_parameter("bias", 0)
+        .set_parameter("sv_noise_var", 0)
+        .set_parameter("gap", 10)
     )
-    test_mode = [3191427]#训练模型用
+    test_mode = [3211023]#训练模型用
     grid_use = [61]
     # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
-    snr_values_use = [[-10]]
+    snr_values_use = [[-10,-5,0]]
+    # snr_values_use = [[-10]]
     for i, test_mode_snr in enumerate(test_mode):
         base_params = copy.deepcopy(base_params).set_parameter("grid_size", grid_use[i])
         system_model_params = copy.deepcopy(base_params).set_parameter("snr",
@@ -248,7 +231,7 @@ if __name__ == "__main__":
             simulation_parameters = (
                 TrainingParams()
                 .set_batch_size(1024)
-                .set_epochs(10)
+                .set_epochs(100)
                 .set_model(model=model_config)
                 .set_optimizer(optimizer="Adam", learning_rate=0.0001,
                                weight_decay=1e-7)  #learning_rate=0.00001, weight_decay=1e-9

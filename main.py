@@ -86,8 +86,8 @@ if __name__ == "__main__":
         SystemModelParams()
         .set_parameter("N", 16)
         .set_parameter("M", 2)
-        .set_parameter("T", 1000)
-        .set_parameter("grid_size", 31)  # 设置网格点数量
+        .set_parameter("T", 100)
+        .set_parameter("grid_size", 61)  # 设置网格点数量
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
         .set_parameter("eta", 0)
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     )
     # test_mode=[3161222,3161612,3161509,3161318]
     # grid_use=[31,61,121,241]
-    test_mode = [3191427]
+    test_mode = [3201823]
     grid_use = [61]
     snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
     for i,test_mode_snr in enumerate(test_mode):
@@ -106,7 +106,7 @@ if __name__ == "__main__":
         # 定义需要遍历的snr值列表 t:3161845  3162036 3162104 3162138
         # test_snr = range(-13,6,1)
         # test_snr = [-10,-5,0,10]
-        test_snr = range(-10,-9,1)
+        test_snr = range(-10,5,1)
         # test_snr=[10]
         # Define samples size
         samples_size = 30000  # Overall dateset size
