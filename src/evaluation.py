@@ -40,7 +40,7 @@ from src.criterions import RMSPE, MSPE
 from src.methods import MUSIC, RootMUSIC, Esprit, MVDR
 from src.utils import *
 from src.models import SubspaceNet
-from src.plotting import plot_spectrum, detect_top_peaks, detect_top_peaks_gpu
+from src.plotting import plot_spectrum, detect_top_peaks#, detect_top_peaks_gpu
 
 
 def evaluate_dnn_model(
@@ -79,25 +79,15 @@ def evaluate_dnn_model(
     D2R = np.pi  / 180  # 度到弧度的转换常数
     model.eval()
 
-    # class RMSELoss(nn.Module):
-    #     def __init__(self, eps=1e-6):
-    #         super().__init__()
-    #         self.mse = nn.MSELoss()
-    #         self.eps = eps  # 数值稳定项
-    #
-    #     def forward(self, pred, target):
-    #         return torch.sqrt(self.mse(pred, target) + self.eps)
-
     with torch.no_grad():
         for i, data in enumerate(dataset):
             # if i <=11:
             #     continue
             # print(i)
-            X, DOA,W = data
+            X, DOA = data
             batch_size = DOA.shape[0]
             X = X.to(device)
             DOA = DOA.to(device)
-            W = W.to(device)
 
             # 获取模型输出
             model_output = model(X)
@@ -115,7 +105,7 @@ def evaluate_dnn_model(
                     DOA_predictions = model_output[0].cpu().numpy()
                     # DOA_predictions = model_output[0]
                     angles = np.linspace(-60,  60, system_model_params.grid_size)
-                    # angles = torch.linspace(-15, 15, system_model_params.grid_size, device=device)
+                    # angles = torch.linspace(-60, 60, system_model_params.grid_size, device=device)
                     predictions_norm = DOA_predictions / np.max(DOA_predictions)
                     # time1 = time.time()
                     selected_peaks, peak_angles = detect_top_peaks(
@@ -144,15 +134,7 @@ def evaluate_dnn_model(
                 eval_loss = criterion(DOA_predictions.float(),  DOA.float())
             else:
                 eval_loss = criterion(DOA_predictions.float(),  DOA.float())
-            # angle_loss = eval_loss
-            # # 初始化RMSE损失（需确保W存在且维度匹配）
-            # # weight_rmse = RMSELoss()(weight_output.float(), W.float())
-            # # 双损失加权融合
-            # eval_loss = angle_loss #+ weight_rmse
-            # overall_loss += eval_loss.item()  * batch_size  # 按样本数加权
-            overall_loss += eval_loss.item() * batch_size  # 按样本数加权
-            # overall_angle_loss = angle_loss.item() * batch_size
-            # overall_weight_loss = weight_rmse.item() * batch_size
+            overall_loss += eval_loss.item()  * batch_size  # 按样本数加权
 
             # 计算正确率（新增核心逻辑）
             DOA_pred = DOA_predictions.cpu().numpy()
@@ -429,7 +411,7 @@ def evaluate_transformer_model(
     #
     #
     #                 # 生成角度坐标
-    #                 angles = np.linspace(-15, 15, 241)
+    #                 angles = np.linspace(-60, 60, 241)
     #                 predictions_norm = DOA_predictions / np.max(DOA_predictions)
     #                 selected_peaks, peak_angles = detect_top_peaks(
     #                     predictions_norm,
@@ -763,7 +745,7 @@ def evaluate_model_based(
     R2D = 180 / np.pi  # 弧度转度数（假设未定义时在此定义）
 
     for i, data in enumerate(dataset):
-        X, doa,_ = data
+        X, doa = data
         X = X[0]  # 取第一个样本
         total_samples += 1  # 单样本假设，doa为[1, num_sources]
 
@@ -824,7 +806,7 @@ def evaluate_model_based(
             peak_values = spectrum_norm[peaks]
             sorted_indices = np.argsort(peak_values)[::-1]
             sorted_peaks = peaks[sorted_indices]
-            top_peaks = sorted_peaks[:2] + start_idx  # 前两个峰值
+            top_peaks = sorted_peaks[:2] + start_angle  # 前两个峰值
             predicted_doas = angels_deg[top_peaks]
             loss = criterion(predicted_doas, doa * R2D)
             loss_list.append(loss)
@@ -982,7 +964,7 @@ def evaluate(
             system_model_params=system_model_params
         )
     elif training_params.model_type.startswith("DeepCNN"):
-        model_test_loss,acc = evaluate_dnn_model(
+        model_test_loss, acc = evaluate_dnn_model(
             model=model,
             dataset=model_test_dataset,
             criterion=criterion,

@@ -99,7 +99,7 @@ if __name__ == "__main__":
     # grid_use=[31,61,121,241]
     test_mode = [3221423]
     grid_use = [121]
-    # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
+    snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
     for i,test_mode_snr in enumerate(test_mode):
         base_params= copy.deepcopy(base_params).set_parameter("grid_size", grid_use[i])
         system_model_params = copy.deepcopy(base_params).set_parameter("snr", test_mode_snr)#评估时加载的模型d:3161222 3161612 3161509 3161318
@@ -196,7 +196,7 @@ if __name__ == "__main__":
                     generic_test_dataset,
                     samples_model,
                 ) = load_datasets(
-                    system_model_params=system_model_params1,
+                    system_model_params=system_model_params,
                     model_type=model_config.model_type,
                     samples_size=samples_size,
                     datasets_path=datasets_path,
@@ -297,7 +297,7 @@ if __name__ == "__main__":
                 )
                 # Evaluate DNN models, augmented and subspace methods
                 evaluate(
-                    system_model_params=system_model_params1,
+                    system_model_params=base_params,
                     model=model,
                     model_type=model_config.model_type,
                     model_test_dataset=model_test_dataset,

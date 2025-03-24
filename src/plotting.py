@@ -29,8 +29,6 @@ initialize_figures(void): Generates template dictionary containing figure object
 
 
 """
-from typing import Tuple
-
 import scipy.signal
 # Imports
 from matplotlib import pyplot as plt
@@ -776,51 +774,6 @@ def initialize_figures():
             "comparison_key": {"fig": None,"ax" : None, "norm factor" : None}}
 
   return figures
-def find_peaks_gpu(spectrum: torch.Tensor) -> torch.Tensor:
-    # 利用邻域比较实现局部极大值检测
-    mask = (spectrum[1:-1] > spectrum[:-2]) & (spectrum[1:-1] > spectrum[2:])
-    peak_indices = torch.nonzero(mask,  as_tuple=True)[0] + 1
-    return peak_indices
-def sort_and_filter(spectrum: torch.Tensor, peak_indices: torch.Tensor, top_k: int) -> torch.Tensor:
-    # 按强度降序排列
-    sorted_values, sorted_indices = torch.sort(spectrum[peak_indices],  descending=True)
-    sorted_peaks = peak_indices[sorted_indices]
-    return sorted_peaks[:top_k]  # 预取前2*top_k候选
-
-
-def distance_filter(angles: torch.Tensor, sorted_peaks: torch.Tensor, min_distance: float) -> torch.Tensor:
-    # 生成角度差矩阵（上三角）
-    angle_diff = torch.abs(angles[sorted_peaks].unsqueeze(1) - angles[sorted_peaks].unsqueeze(0))
-    mask = (angle_diff < min_distance).triu(diagonal=1)
-
-    # 标记冲突位置
-    conflict_mask = mask.any(dim=1)
-    return sorted_peaks[~conflict_mask]
-
-
-def detect_top_peaks_gpu(
-        spectrum: torch.Tensor,
-        angles: torch.Tensor,
-        min_distance: float = 5.0,
-        top_k: int = 2
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    # 参数校验
-    assert spectrum.device == angles.device, "输入张量设备不一致"
-
-    # 检测局部峰值
-    peak_indices = find_peaks_gpu(spectrum)
-    if len(peak_indices) == 0:
-        return torch.empty(0), torch.empty(0)
-
-        # 排序与预筛选
-    sorted_peaks = sort_and_filter(spectrum, peak_indices, top_k * 2)
-
-    # 距离筛选
-    valid_peaks = distance_filter(angles, sorted_peaks, min_distance)
-
-    # 取前top_k个
-    final_peaks = valid_peaks[:top_k]
-    return final_peaks, angles[final_peaks]
 def detect_top_peaks(spectrum: np.ndarray, angles: np.ndarray, min_distance: float = 5, top_k: int = 2):
     """
     识别谱图中的峰值，并确保相邻峰值至少间隔 `min_distance` 度，同时返回前 `top_k` 个最强峰值。

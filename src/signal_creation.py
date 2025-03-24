@@ -214,7 +214,7 @@ class Samples(SystemModel):
         # NarrowBand signal creation
         if self.params.signal_type == "NarrowBand":
             if self.params.signal_nature == "non-coherent":
-                # # create M non-coherent signals  实部虚部随机
+                # create M non-coherent signals
                 return (
                     amplitude
                     * (np.sqrt(2) / 2)
@@ -225,17 +225,6 @@ class Samples(SystemModel):
                     )
                     + signal_mean
                 )
-
-                # 生成高斯幅度与均匀相位
-                # # magnitude = np.random.randn(self.params.M, self.params.T)#高斯分布
-                # magnitude = 1
-                # # phase = (np.random.rand(self.params.M, self.params.T) - 0.5) * 2 * np.pi# 均匀分布
-                # phase = 2*np.pi*100*np.random.randn(self.params.M, self.params.T)  # 均匀分布 500Hz
-                # # 合成复数信号并添加参数
-                # return (
-                #         amplitude * np.sqrt(signal_variance) * magnitude * np.exp(1j * phase)
-                #         + signal_mean
-                # )
 
             elif self.params.signal_nature == "coherent":
                 # Coherent signals: same amplitude and phase for all signals

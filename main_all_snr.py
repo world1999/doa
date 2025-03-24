@@ -103,7 +103,7 @@ if __name__ == "__main__":
         .set_parameter("sv_noise_var", 0)
         .set_parameter("gap", 10)
     )
-    test_mode = [3240823]#训练模型用
+    test_mode = [3241023]#训练模型用
     grid_use = [121]
     # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
     snr_values_use = [[-20,-15,-10,-5,0]]
@@ -126,7 +126,7 @@ if __name__ == "__main__":
             .set_model(system_model_params)
         )
         # Define samples size
-        samples_size = 20000 # Overall dateset size
+        samples_size = 20000# Overall dateset size
         train_test_ratio = 0.1  # training and testing datasets ratio
         # Sets simulation filename
         simulation_filename = get_simulation_filename(
@@ -230,8 +230,8 @@ if __name__ == "__main__":
             # Assign the training parameters object
             simulation_parameters = (
                 TrainingParams()
-                .set_batch_size(512)
-                .set_epochs(80)
+                .set_batch_size(32)
+                .set_epochs(200)
                 .set_model(model=model_config)
                 .set_optimizer(optimizer="Adam", learning_rate=0.001,
                                weight_decay=1e-7)  #learning_rate=0.00001, weight_decay=1e-9

@@ -654,6 +654,5 @@ class MVDR(MUSIC):
                 ).item()
             )
         response_curve = np.array(response_curve, dtype=complex)
-        # response_curve = 10 * np.log10(np.abs(response_curve))
         predictions = None
         return predictions, response_curve

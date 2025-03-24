@@ -379,7 +379,7 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
         model.train()
         model = model.to(device)
         for data in tqdm(training_params.train_dataset):
-            Rx, DOA, W = data
+            Rx, DOA = data
             train_length += DOA.shape[0]
             # Cast observations and DoA to Variables
             Rx = Variable(Rx, requires_grad=True).to(device)
