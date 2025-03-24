@@ -157,7 +157,7 @@ def create_dataset(
         allow_duplicates = True  # 允许重复选择相同组合
 
         # 生成全排列组合
-        angles_grid = np.linspace(-15, 15, system_model_params.grid_size)
+        angles_grid = np.linspace(-60, 60, system_model_params.grid_size)
         all_combinations = list(itertools.combinations(angles_grid, system_model_params.M))
 
         # 创建随机选择器
@@ -168,7 +168,11 @@ def create_dataset(
 
         # 训练数据生成流程
         for idx in tqdm(selected_indices):
-            doa = list(all_combinations[idx])
+            doa = list(all_combinations[idx])#制定数目的样本
+
+        # for i, doa in tqdm(enumerate(all_combinations)):#每个组合来一次
+
+
             samples_model.set_doa(doa)
 
             # 信号生成（带随机性）
@@ -187,11 +191,35 @@ def create_dataset(
                 )[0],
                 dtype=torch.complex64,
             )
+            # signal=torch.tensor(
+            #     samples_model.samples_creation(
+            #         noise_mean=0, noise_variance=1, signal_mean=0, signal_variance=1
+            #     )[1],
+            #     dtype=torch.complex64,###信号
+            # )
+            A = torch.tensor(
+                samples_model.samples_creation(
+                    noise_mean=0, noise_variance=1, signal_mean=0, signal_variance=1
+                )[2],
+                dtype=torch.complex64,  ###信号
+            )
+            # 理论协方差计算
+            R_s = np.eye(2, dtype=np.complex64) * 1  # 信号协方差矩阵（假设信号独立） np.eye(K) * signal_variance
+            R_n = np.eye(16, dtype=np.complex64) * 1  # 噪声协方差矩阵（白噪声） np.eye(M) * noise_variance
+            # 转换为 PyTorch Tensor 时保持类型一致
+            R_s_tensor = torch.tensor(R_s, dtype=torch.complex64)
+            R_n_tensor = torch.tensor(R_n, dtype=torch.complex64)
+
+
+            # 重新计算协方差矩阵
+            R_ideal = A @ R_s_tensor @ A.conj().T + R_n_tensor
+            # R_ideal = A @ R_s @ A.conj().T + R_n
+
             # 模型特定预处理
             if model_type.startswith("My_transform_Model"):
                 X_model = create_rx_tensor(X)
             elif model_type.startswith("DeepCNN"):
-                X_model = create_cov_tensor(X)
+                X_model = create_cov_tensor(X)#R_ideal
 
             # Ground-truth creation (One-Hot encoding)
             Y = torch.zeros_like(torch.tensor(angles_grid))
@@ -314,7 +342,7 @@ def create_dataset(
             # Ground-truth creation (raw DOA values)
             Y = torch.tensor(samples_model.doa, dtype=torch.float64)
             # 生成全排列组合
-            angles_grid = np.linspace(-15, 15, system_model_params.grid_size)
+            angles_grid = np.linspace(-60, 60, system_model_params.grid_size)
             # 新增权重计算
             W = compute_weights(X, angles_grid)
 

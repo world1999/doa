@@ -108,7 +108,7 @@ def plot_My_transform_Model_spectrum(system_model_params: SystemModelParams,pred
 
 
     # 生成角度坐标
-    angles = np.linspace(-15, 15, system_model_params.grid_size)
+    angles = np.linspace(-60, 60, system_model_params.grid_size)
 
     # 绘制DeepCNN谱线
     line_cnn, = ax.plot(angles, predictions_norm ,
@@ -241,7 +241,7 @@ def plot_DeepCNN_spectrum1(system_model_params: SystemModelParams,predictions: n
 
     # 数据规范化处理
     predictions_norm = predictions / np.max(predictions)
-    angles = np.linspace(-15, 15, system_model_params.grid_size)
+    angles = np.linspace(-60, 60, system_model_params.grid_size)
 
     # 核心绘图逻辑
     line_cnn, = ax.plot(angles, predictions_norm,
@@ -335,7 +335,7 @@ def plot_DeepCNN_spectrum1(system_model_params: SystemModelParams,predictions: n
 #
 #
 #     # 生成角度坐标
-#     angles = np.linspace(-15, 15, 241)
+#     angles = np.linspace(-60, 60, 241)
 #
 #     # 绘制DeepCNN谱线
 #     line_cnn, = ax.plot(angles, predictions_norm ,
@@ -641,7 +641,7 @@ def plot_mvdr_spectrum(system_model, figures: dict, spectrum: np.ndarray,
 #     unique_labels = dict(zip(labels, handles))
 #     ax.legend(unique_labels.values(), unique_labels.keys(),
 #               loc='upper right',
-#               bbox_to_anchor=(1.15, 1.15),  # 外置图例位置调整
+#               bbox_to_anchor=(1.60, 1.60),  # 外置图例位置调整
 #               frameon=True)
 #
 #     # ==================== 保存与清理 ====================

@@ -384,9 +384,9 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
             # Cast observations and DoA to Variables
             Rx = Variable(Rx, requires_grad=True).to(device)
             DOA = Variable(DOA, requires_grad=True).to(device)
-            W = Variable(W, requires_grad=True).to(device)
+            # W = Variable(W, requires_grad=True).to(device)
             # Get model output
-            model_output,weight_output = model(Rx)#
+            model_output = model(Rx)#
             if training_params.model_type.startswith("SubspaceNet"):
                 # Default - SubSpaceNet
                 DOA_predictions = model_output[0].float()
@@ -394,22 +394,22 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
                 # Deep Augmented MUSIC or DeepCNN or My_transform_Model
                 DOA_predictions = model_output
             # Compute training loss
-            class RMSELoss(nn.Module):
-                def __init__(self, eps=1e-6):
-                    super().__init__()
-                    self.mse = nn.MSELoss()
-                    self.eps = eps  # 数值稳定项
-
-                def forward(self, pred, target):
-                    return torch.sqrt(self.mse(pred, target) + self.eps)
+            # class RMSELoss(nn.Module):
+            #     def __init__(self, eps=1e-6):
+            #         super().__init__()
+            #         self.mse = nn.MSELoss()
+            #         self.eps = eps  # 数值稳定项
+            #
+            #     def forward(self, pred, target):
+            #         return torch.sqrt(self.mse(pred, target) + self.eps)
             if training_params.model_type.startswith(("My_transform_Model", "DeepCNN")):
-                # angle_loss = training_params.criterion(
-                #     DOA_predictions.float(), DOA.float()
-                # )
+                angle_loss = training_params.criterion(
+                    DOA_predictions.float(), DOA.float()
+                )
                 # 初始化RMSE损失（需确保W存在且维度匹配）
-                weight_rmse = RMSELoss()(weight_output.float(), W.float())
+                # weight_rmse = RMSELoss()(weight_output.float(), W.float())
                #双损失加权融合
-                train_loss =   weight_rmse#angle_loss +
+                train_loss = angle_loss  #weight_rmse#angle_loss +
                 # else:
             #     train_loss = training_params.criterion(DOA_predictions.float(), DOA.float())
             # Back-propagation stage
@@ -426,7 +426,7 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
                 # BCE is averaged
                 overall_train_loss += train_loss.item() * len(data[0])
                 # overall_train_angle_loss = angle_loss.item() * len(data[0])
-                overall_train_weight_loss = weight_rmse.item() * len(data[0])
+                # overall_train_weight_loss = weight_rmse.item() * len(data[0])
             # elif training_params.model_type.startswith("My_transform_Model"):
             #     # BCE is averaged
             #     overall_train_loss += train_loss.item() * len(data[0])
@@ -436,7 +436,7 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
         # Average the epoch training loss
         overall_train_loss = overall_train_loss / train_length
         # overall_train_angle_loss= overall_train_angle_loss / train_length
-        overall_train_weight_loss= overall_train_weight_loss / train_length
+        # overall_train_weight_loss= overall_train_weight_loss / train_length
         loss_train_list.append(overall_train_loss)
         # Update schedular
         training_params.schedular.step()
@@ -451,7 +451,7 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
                 model_type=training_params.model_type,
             )
         elif training_params.model_type.startswith("DeepCNN"):
-            valid_loss,overall_angle_loss,overall_weight_loss,_ = evaluate_dnn_model(
+            valid_loss,_ = evaluate_dnn_model(
                 system_model_params,
                 model,
                 training_params.valid_dataset,
@@ -466,7 +466,7 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
         #     )
         # )
         print(
-            "epoch : {}/{}, Train loss = {:.6f},Train weight loss ={:.6f}  Validation loss = {:.6f} ,valid angle loss ={:.6f},valid weight loss ={:.6f}  ".format(
+            "epoch : {}/{}, Train loss = {:.6f}, Validation loss = {:.6f}   ".format(
                 epoch + 1, training_params.epochs, overall_train_loss,  valid_loss
             )
         )

@@ -79,14 +79,14 @@ def evaluate_dnn_model(
     D2R = np.pi  / 180  # 度到弧度的转换常数
     model.eval()
 
-    class RMSELoss(nn.Module):
-        def __init__(self, eps=1e-6):
-            super().__init__()
-            self.mse = nn.MSELoss()
-            self.eps = eps  # 数值稳定项
-
-        def forward(self, pred, target):
-            return torch.sqrt(self.mse(pred, target) + self.eps)
+    # class RMSELoss(nn.Module):
+    #     def __init__(self, eps=1e-6):
+    #         super().__init__()
+    #         self.mse = nn.MSELoss()
+    #         self.eps = eps  # 数值稳定项
+    #
+    #     def forward(self, pred, target):
+    #         return torch.sqrt(self.mse(pred, target) + self.eps)
 
     with torch.no_grad():
         for i, data in enumerate(dataset):
@@ -100,7 +100,7 @@ def evaluate_dnn_model(
             W = W.to(device)
 
             # 获取模型输出
-            model_output,weight_output = model(X)
+            model_output = model(X)
             # # 检测全零输出（支持多设备）
             # if model_output.numel()  == 0:  # 自动兼容CPU/GPU张量
             #     continue  # 跳过当前样本/批次
@@ -114,7 +114,7 @@ def evaluate_dnn_model(
                 elif isinstance(criterion, (RMSPELoss, MSPELoss)):
                     DOA_predictions = model_output[0].cpu().numpy()
                     # DOA_predictions = model_output[0]
-                    angles = np.linspace(-15,  15, system_model_params.grid_size)
+                    angles = np.linspace(-60,  60, system_model_params.grid_size)
                     # angles = torch.linspace(-15, 15, system_model_params.grid_size, device=device)
                     predictions_norm = DOA_predictions / np.max(DOA_predictions)
                     # time1 = time.time()
@@ -144,15 +144,15 @@ def evaluate_dnn_model(
                 eval_loss = criterion(DOA_predictions.float(),  DOA.float())
             else:
                 eval_loss = criterion(DOA_predictions.float(),  DOA.float())
-            angle_loss = eval_loss
-            # 初始化RMSE损失（需确保W存在且维度匹配）
-            weight_rmse = RMSELoss()(weight_output.float(), W.float())
-            # 双损失加权融合
-            eval_loss = angle_loss + weight_rmse
+            # angle_loss = eval_loss
+            # # 初始化RMSE损失（需确保W存在且维度匹配）
+            # # weight_rmse = RMSELoss()(weight_output.float(), W.float())
+            # # 双损失加权融合
+            # eval_loss = angle_loss #+ weight_rmse
             # overall_loss += eval_loss.item()  * batch_size  # 按样本数加权
             overall_loss += eval_loss.item() * batch_size  # 按样本数加权
-            overall_angle_loss = angle_loss.item() * batch_size
-            overall_weight_loss = weight_rmse.item() * batch_size
+            # overall_angle_loss = angle_loss.item() * batch_size
+            # overall_weight_loss = weight_rmse.item() * batch_size
 
             # 计算正确率（新增核心逻辑）
             DOA_pred = DOA_predictions.cpu().numpy()
@@ -223,7 +223,7 @@ def evaluate_dnn_model(
     #         algorithm="SubNet+R-MUSIC",
     #         figures=figures,
     #     )
-    return overall_loss,overall_angle_loss,overall_weight_loss,accuracy
+    return overall_loss,accuracy
 
 def evaluate_transformer_model(
         system_model_params: SystemModelParams,
@@ -277,7 +277,7 @@ def evaluate_transformer_model(
                     DOA_predictions = model_output
                 elif isinstance(criterion, (RMSPELoss, MSPELoss)):
                     DOA_predictions = model_output[0].cpu().numpy()
-                    angles = np.linspace(-15, 15, system_model_params.grid_size)
+                    angles = np.linspace(-60, 60, system_model_params.grid_size)
                     predictions_norm = DOA_predictions / np.max(DOA_predictions)
                     selected_peaks, peak_angles = detect_top_peaks(
                         predictions_norm, angles, min_distance=5, top_k=2
@@ -814,8 +814,8 @@ def evaluate_model_based(
             angels_deg = np.rad2deg(mvdr._angels)  # 角度转为度数
             _, spectrum = mvdr.narrowband(X=X, mode="sample",eps=1)
             # 计算角度范围对应的索引
-            start_angle = -15
-            end_angle = 15
+            start_angle = -60
+            end_angle = 60
             start_idx = int((start_angle - (-90)) / 0.01)  # 7500
             end_idx = int((end_angle - (-90)) / 0.01) + 1  # 10501
             # spectrum_norm = spectrum[start_idx:end_idx] / np.max(spectrum[start_idx:end_idx])
@@ -824,7 +824,7 @@ def evaluate_model_based(
             peak_values = spectrum_norm[peaks]
             sorted_indices = np.argsort(peak_values)[::-1]
             sorted_peaks = peaks[sorted_indices]
-            top_peaks = sorted_peaks[:2] + 7500  # 前两个峰值
+            top_peaks = sorted_peaks[:2] + start_idx  # 前两个峰值
             predicted_doas = angels_deg[top_peaks]
             loss = criterion(predicted_doas, doa * R2D)
             loss_list.append(loss)
@@ -982,7 +982,7 @@ def evaluate(
             system_model_params=system_model_params
         )
     elif training_params.model_type.startswith("DeepCNN"):
-        model_test_loss,overall_angle_loss,overall_weight_loss,acc = evaluate_dnn_model(
+        model_test_loss,acc = evaluate_dnn_model(
             model=model,
             dataset=model_test_dataset,
             criterion=criterion,

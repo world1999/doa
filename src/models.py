@@ -691,150 +691,150 @@ class DeepAugmentedMUSIC(nn.Module):
         return DOA
 
 
-class DeepCNN(nn.Module):#DualTowerDeepCNN
-    """双塔结构深度卷积网络，同步进行DoA估计与权重矩阵预测
-
-    架构特性：
-    - 共享底层卷积特征提取器
-    - 独立的全连接塔结构实现参数解耦
-    - 自适应多尺度特征融合机制
-
-    Args:
-        N (int): 输入协方差矩阵维度（N x N）
-        grid_size (int): 方位估计网格划分数量
-        w_dim (int): 权重矩阵输出维度（预设为61*16*2=1952）
-    """
-
-    def __init__(self, N, grid_size, w_dim=1952):
-        super(DeepCNN, self).__init__()#DualTower
-        self.N = N
-        self.grid_size = grid_size
-        self.w_dim = w_dim
-
-        # 共享卷积层组
-        self.conv1 = nn.Conv2d(3, 256, kernel_size=3)
-        self.conv2 = nn.Conv2d(256, 256, kernel_size=2)
-        self.BatchNorm = nn.BatchNorm2d(256)
-        self.ReLU = nn.ReLU()
-
-        # 特征展开维度计算
-        self.flatten_dim = 256 * (N - 5) * (N - 5)
-
-        # 方位估计塔
-        self.angle_tower = nn.Sequential(
-            nn.Linear(self.flatten_dim, 4096),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(4096, 2048),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(2048, 1024),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(1024, grid_size),
-            nn.Sigmoid()
-        )
-
-        # 权重矩阵塔
-        self.weight_tower = nn.Sequential(
-            nn.Linear(self.flatten_dim, 4096),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(4096, 2048),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(2048, 2048),  # 新增过渡层
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(2048, w_dim),
-            nn.Sigmoid()
-        )
-
-    def forward(self, X):
-        # 输入张量重塑 [batch, N, N, 3] → [batch, 3, N, N]
-        X = X.permute(0, 3, 2, 1)
-
-        # 共享特征提取
-        X = self.ReLU(self.conv1(X))  # [b,256,N-2,N-2]
-        X = self.ReLU(self.conv2(X))  # [b,256,N-3,N-3]
-        X = self.ReLU(self.conv2(X))  # [b,256,N-4,N-4]
-        X = self.ReLU(self.conv2(X))  # [b,256,N-5,N-5]
-
-        # 特征展平
-        X_flat = X.view(X.size(0), -1)  # [b, 256*(N-5)^2]
-
-        # 双塔并行处理
-        angle_output = self.angle_tower(X_flat)  # [b, grid_size]
-        weight_output = self.weight_tower(X_flat)  # [b, 1952]
-
-        return angle_output, weight_output
-
-# class DeepCNN(nn.Module):
-#     """DeepCNN is a convolutional neural network model for DoA  estimation.
+# class DeepCNN(nn.Module):#DualTowerDeepCNN
+#     """双塔结构深度卷积网络，同步进行DoA估计与权重矩阵预测
+#
+#     架构特性：
+#     - 共享底层卷积特征提取器
+#     - 独立的全连接塔结构实现参数解耦
+#     - 自适应多尺度特征融合机制
 #
 #     Args:
-#         N (int): Input dimension size.
-#         grid_size (int): Size of the output grid.
-#
-#     Attributes:
-#         N (int): Input dimension size.
-#         grid_size (int): Size of the output grid.
-#         conv1 (nn.Conv2d): Convolutional layer 1.
-#         conv2 (nn.Conv2d): Convolutional layer 2.
-#         fc1 (nn.Linear): Fully connected layer 1.
-#         BatchNorm (nn.BatchNorm2d): Batch normalization layer.
-#         fc2 (nn.Linear): Fully connected layer 2.
-#         fc3 (nn.Linear): Fully connected layer 3.
-#         fc4 (nn.Linear): Fully connected layer 4.
-#         DropOut (nn.Dropout): Dropout layer.
-#         Sigmoid (nn.Sigmoid): Sigmoid activation function.
-#         ReLU (nn.ReLU): Rectified Linear Unit activation function.
-#
-#     Methods:
-#         forward(X: torch.Tensor): Performs the forward pass of the DeepCNN model.
+#         N (int): 输入协方差矩阵维度（N x N）
+#         grid_size (int): 方位估计网格划分数量
+#         w_dim (int): 权重矩阵输出维度（预设为61*16*2=1952）
 #     """
 #
-#     def __init__(self, N, grid_size):
-#         ## input dim (N, T)
-#         super(DeepCNN, self).__init__()
+#     def __init__(self, N, grid_size, w_dim=1952):
+#         super(DeepCNN, self).__init__()#DualTower
 #         self.N = N
 #         self.grid_size = grid_size
+#         self.w_dim = w_dim
+#
+#         # 共享卷积层组
 #         self.conv1 = nn.Conv2d(3, 256, kernel_size=3)
 #         self.conv2 = nn.Conv2d(256, 256, kernel_size=2)
-#         self.fc1 = nn.Linear(256 * (self.N - 5) * (self.N - 5), 4096)
 #         self.BatchNorm = nn.BatchNorm2d(256)
-#         self.fc2 = nn.Linear(4096, 2048)
-#         self.fc3 = nn.Linear(2048, 1024)
-#         self.fc4 = nn.Linear(1024, self.grid_size)
-#         self.DropOut = nn.Dropout(0.3)
-#         self.Sigmoid = nn.Sigmoid()
 #         self.ReLU = nn.ReLU()
 #
+#         # 特征展开维度计算
+#         self.flatten_dim = 256 * (N - 5) * (N - 5)
+#
+#         # 方位估计塔
+#         self.angle_tower = nn.Sequential(
+#             nn.Linear(self.flatten_dim, 4096),
+#             nn.ReLU(),
+#             nn.Dropout(0.3),
+#             nn.Linear(4096, 2048),
+#             nn.ReLU(),
+#             nn.Dropout(0.3),
+#             nn.Linear(2048, 1024),
+#             nn.ReLU(),
+#             nn.Dropout(0.3),
+#             nn.Linear(1024, grid_size),
+#             nn.Sigmoid()
+#         )
+#
+#         # 权重矩阵塔
+#         self.weight_tower = nn.Sequential(
+#             nn.Linear(self.flatten_dim, 4096),
+#             nn.ReLU(),
+#             nn.Dropout(0.3),
+#             nn.Linear(4096, 2048),
+#             nn.ReLU(),
+#             nn.Dropout(0.3),
+#             nn.Linear(2048, 2048),  # 新增过渡层
+#             nn.ReLU(),
+#             nn.Dropout(0.3),
+#             nn.Linear(2048, w_dim),
+#             nn.Sigmoid()
+#         )
+#
 #     def forward(self, X):
-#         # X shape == [Batch size, N, N, 3]
-#         X = X.view(X.size(0), X.size(3), X.size(2), X.size(1))  # [Batch size, 3, N, N]
-#         ## Architecture flow ##
-#         # CNN block #1: 3xNxN-->256x(N-2)x(N-2)
-#         X = self.conv1(X)
-#         X = self.ReLU(X)
-#         # CNN block #2: 256x(N-2)x(N-2)-->256x(N-3)x(N-3)
-#         X = self.conv2(X)
-#         X = self.ReLU(X)
-#         # CNN block #3: 256x(N-3)x(N-3)-->256x(N-4)x(N-4)
-#         X = self.conv2(X)
-#         X = self.ReLU(X)
-#         # CNN block #4: 256x(N-4)x(N-4)-->256x(N-5)x(N-5)
-#         X = self.conv2(X)
-#         X = self.ReLU(X)
-#         # FC BLOCK
-#         # Reshape Output shape: [Batch size, 256 * (self.N - 5) * (self.N - 5)]
-#         X = X.view(X.size(0), -1)
-#         X = self.DropOut(self.ReLU(self.fc1(X)))  # [Batch size, 4096]
-#         X = self.DropOut(self.ReLU(self.fc2(X)))  # [Batch size, 2048]
-#         X = self.DropOut(self.ReLU(self.fc3(X)))  # [Batch size, 1024]
-#         X = self.fc4(X)  # [Batch size, grid_size]
-#         X = self.Sigmoid(X)
-#         return X
+#         # 输入张量重塑 [batch, N, N, 3] → [batch, 3, N, N]
+#         X = X.permute(0, 3, 2, 1)
+#
+#         # 共享特征提取
+#         X = self.ReLU(self.conv1(X))  # [b,256,N-2,N-2]
+#         X = self.ReLU(self.conv2(X))  # [b,256,N-3,N-3]
+#         X = self.ReLU(self.conv2(X))  # [b,256,N-4,N-4]
+#         X = self.ReLU(self.conv2(X))  # [b,256,N-5,N-5]
+#
+#         # 特征展平
+#         X_flat = X.view(X.size(0), -1)  # [b, 256*(N-5)^2]
+#
+#         # 双塔并行处理
+#         angle_output = self.angle_tower(X_flat)  # [b, grid_size]
+#         weight_output = self.weight_tower(X_flat)  # [b, 1952]
+#
+#         return angle_output, weight_output
+
+class DeepCNN(nn.Module):
+    """DeepCNN is a convolutional neural network model for DoA  estimation.
+
+    Args:
+        N (int): Input dimension size.
+        grid_size (int): Size of the output grid.
+
+    Attributes:
+        N (int): Input dimension size.
+        grid_size (int): Size of the output grid.
+        conv1 (nn.Conv2d): Convolutional layer 1.
+        conv2 (nn.Conv2d): Convolutional layer 2.
+        fc1 (nn.Linear): Fully connected layer 1.
+        BatchNorm (nn.BatchNorm2d): Batch normalization layer.
+        fc2 (nn.Linear): Fully connected layer 2.
+        fc3 (nn.Linear): Fully connected layer 3.
+        fc4 (nn.Linear): Fully connected layer 4.
+        DropOut (nn.Dropout): Dropout layer.
+        Sigmoid (nn.Sigmoid): Sigmoid activation function.
+        ReLU (nn.ReLU): Rectified Linear Unit activation function.
+
+    Methods:
+        forward(X: torch.Tensor): Performs the forward pass of the DeepCNN model.
+    """
+
+    def __init__(self, N, grid_size):
+        ## input dim (N, T)
+        super(DeepCNN, self).__init__()
+        self.N = N
+        self.grid_size = grid_size
+        self.conv1 = nn.Conv2d(3, 256, kernel_size=3)
+        self.conv2 = nn.Conv2d(256, 256, kernel_size=2)
+        self.fc1 = nn.Linear(256 * (self.N - 5) * (self.N - 5), 4096)
+        self.BatchNorm = nn.BatchNorm2d(256)
+        self.fc2 = nn.Linear(4096, 2048)
+        self.fc3 = nn.Linear(2048, 1024)
+        self.fc4 = nn.Linear(1024, self.grid_size)
+        self.DropOut = nn.Dropout(0.3)
+        self.Sigmoid = nn.Sigmoid()
+        self.ReLU = nn.ReLU()
+
+    def forward(self, X):
+        # X shape == [Batch size, N, N, 3]
+        X = X.view(X.size(0), X.size(3), X.size(2), X.size(1))  # [Batch size, 3, N, N]
+        ## Architecture flow ##
+        # CNN block #1: 3xNxN-->256x(N-2)x(N-2)
+        X = self.conv1(X)
+        X = self.ReLU(X)
+        # CNN block #2: 256x(N-2)x(N-2)-->256x(N-3)x(N-3)
+        X = self.conv2(X)
+        X = self.ReLU(X)
+        # CNN block #3: 256x(N-3)x(N-3)-->256x(N-4)x(N-4)
+        X = self.conv2(X)
+        X = self.ReLU(X)
+        # CNN block #4: 256x(N-4)x(N-4)-->256x(N-5)x(N-5)
+        X = self.conv2(X)
+        X = self.ReLU(X)
+        # FC BLOCK
+        # Reshape Output shape: [Batch size, 256 * (self.N - 5) * (self.N - 5)]
+        X = X.view(X.size(0), -1)
+        X = self.DropOut(self.ReLU(self.fc1(X)))  # [Batch size, 4096]
+        X = self.DropOut(self.ReLU(self.fc2(X)))  # [Batch size, 2048]
+        X = self.DropOut(self.ReLU(self.fc3(X)))  # [Batch size, 1024]
+        X = self.fc4(X)  # [Batch size, grid_size]
+        X = self.Sigmoid(X)
+        return X
 
 
 def root_music(Rz: torch.Tensor, M: int, batch_size: int):
