@@ -426,7 +426,7 @@ def plot_mvdr_spectrum(system_model, figures: dict, spectrum: np.ndarray,
     print(f"[MVDR] True DOAs: {unique_true_doa}")
     # 获取角度信息
     mvdr = MVDR(system_model)
-    angels_deg = np.rad2deg(mvdr._angels)[7500:10500]  # 转换为度数
+    angels_deg = np.rad2deg(mvdr._angels)[3000:15001]  # 转换为度数
     # 为每个样本创建独立的 comparison 键
     comparison_key = f"comparison_{sample_idx}"
     # 初始化比较图容器

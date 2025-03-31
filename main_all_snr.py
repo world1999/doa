@@ -94,8 +94,8 @@ if __name__ == "__main__":
         SystemModelParams()
         .set_parameter("N", 16)
         .set_parameter("M", 2)
-        .set_parameter("T", 2000)
-        .set_parameter("grid_size", 121)  # 添加网格点参数
+        .set_parameter("T", 1000)
+        .set_parameter("grid_size", 241)  # 添加网格点参数
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
         .set_parameter("eta", 0)
@@ -103,11 +103,10 @@ if __name__ == "__main__":
         .set_parameter("sv_noise_var", 0)
         .set_parameter("gap", 10)
     )
-    test_mode = [3241023]#训练模型用
-    grid_use = [121]
+    test_mode = [3191427]#训练模型用
+    grid_use = [61]
     # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
-    snr_values_use = [[-20,-15,-10,-5,0]]
-    # snr_values_use = [[-10]]
+    snr_values_use = [[-10]]
     for i, test_mode_snr in enumerate(test_mode):
         base_params = copy.deepcopy(base_params).set_parameter("grid_size", grid_use[i])
         system_model_params = copy.deepcopy(base_params).set_parameter("snr",
@@ -126,8 +125,8 @@ if __name__ == "__main__":
             .set_model(system_model_params)
         )
         # Define samples size
-        samples_size = 20000# Overall dateset size
-        train_test_ratio = 0.1  # training and testing datasets ratio
+        samples_size = 30000  # Overall dateset size
+        train_test_ratio = 0.002  # training and testing datasets ratio
         # Sets simulation filename
         simulation_filename = get_simulation_filename(
             system_model_params=system_model_params, model_config=model_config
@@ -230,13 +229,13 @@ if __name__ == "__main__":
             # Assign the training parameters object
             simulation_parameters = (
                 TrainingParams()
-                .set_batch_size(32)
-                .set_epochs(200)
+                .set_batch_size(1024)
+                .set_epochs(10)
                 .set_model(model=model_config)
-                .set_optimizer(optimizer="Adam", learning_rate=0.001,
+                .set_optimizer(optimizer="Adam", learning_rate=0.0001,
                                weight_decay=1e-7)  #learning_rate=0.00001, weight_decay=1e-9
                 .set_training_dataset(combined_dataset)  #by j
-                .set_schedular(step_size=20, gamma=0.5)
+                .set_schedular(step_size=15, gamma=0.5)
                 .set_criterion()  #自动设置成nn.BCELoss()  非常关键，训练的时候要设置
             )
             if commands["LOAD_MODEL"]:

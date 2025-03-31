@@ -802,12 +802,13 @@ def evaluate_model_based(
             end_idx = int((end_angle - (-90)) / 0.01) + 1  # 10501
             # spectrum_norm = spectrum[start_idx:end_idx] / np.max(spectrum[start_idx:end_idx])
             spectrum_norm = spectrum[start_idx:end_idx]
+            angels_deg = angels_deg[start_idx:end_idx]
             peaks = argrelextrema(spectrum_norm, np.greater)[0]
             peak_values = spectrum_norm[peaks]
             sorted_indices = np.argsort(peak_values)[::-1]
             sorted_peaks = peaks[sorted_indices]
-            top_peaks = sorted_peaks[:2] + start_angle  # 前两个峰值
-            predicted_doas = angels_deg[top_peaks]
+            top_peaks = sorted_peaks[:2]   # 前两个峰值
+            predicted_doas = angels_deg[top_peaks ]
             loss = criterion(predicted_doas, doa * R2D)
             loss_list.append(loss)
 

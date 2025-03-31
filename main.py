@@ -97,7 +97,7 @@ if __name__ == "__main__":
     )
     # test_mode=[3161222,3161612,3161509,3161318]
     # grid_use=[31,61,121,241]
-    test_mode = [3221423]
+    test_mode = [3241423]
     grid_use = [121]
     snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
     for i,test_mode_snr in enumerate(test_mode):
@@ -106,7 +106,7 @@ if __name__ == "__main__":
         # 定义需要遍历的snr值列表 t:3161845  3162036 3162104 3162138
         # test_snr = range(-13,6,1)
         # test_snr = [-10,-5,0,10]
-        test_snr = range(-10,5,1)
+        test_snr = range(-10,6,1)
         # test_snr=[10]
         # Define samples size
         samples_size = 30000  # Overall dateset size
@@ -184,8 +184,8 @@ if __name__ == "__main__":
                         tau=model_config.tau,
                         save_datasets=True,
                         datasets_path=datasets_path,
-                        true_doa=None,
-                        # true_doa=paired_angles,#生成测试集时需要指定角度
+                        # true_doa=None,
+                        true_doa=paired_angles,#生成测试集时需要指定角度
                         phase="test",
                     )
             # Datasets loading
@@ -297,7 +297,7 @@ if __name__ == "__main__":
                 )
                 # Evaluate DNN models, augmented and subspace methods
                 evaluate(
-                    system_model_params=base_params,
+                    system_model_params=system_model_params1,
                     model=model,
                     model_type=model_config.model_type,
                     model_test_dataset=model_test_dataset,
@@ -306,8 +306,8 @@ if __name__ == "__main__":
                     subspace_criterion=subspace_criterion,
                     system_model=samples_model,
                     figures=figures,
-                    # plot_spec=True,
-                    plot_spec=False,
+                    plot_spec=True,
+                    # plot_spec=False,
                     training_params=simulation_parameters
                     # augmented_methods='mvdr'
                 )

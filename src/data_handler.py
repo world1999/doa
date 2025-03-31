@@ -94,41 +94,41 @@ def create_dataset(
     """
 
     # 新增权重计算函数（保持代码复用性）
-    def compute_weights(X_tensor, system_model, angles_grid):
-        """计算MVDR权重矩阵"""
-        X = X_tensor.numpy()  # 输入形状(N, T)
-        N, T = X.shape
-        eps = 1e-6
-
-        # 协方差矩阵计算
-        covariance = (X @ X.conj().T) / T
-        diag_load = eps * np.trace(covariance) * np.eye(N)
-        inv_cov = np.linalg.pinv(covariance + diag_load)
-
-        # 获取系统参数
-        f = system_model.max_freq[system_model.params.signal_type]
-        weights = []
-
-        # 遍历所有预定义角度
-        for angle in angles_grid:
-            # 导向矢量生成
-            a = system_model.steering_vec(
-                theta=np.deg2rad(angle),
-                f=f,
-                array_form="ULA",
-                nominal=True
-            ).reshape(-1, 1)
-
-            # MVDR权重计算
-            numerator = inv_cov @ a
-            denominator = a.conj().T @ inv_cov @ a
-            w = (numerator / denominator).squeeze()
-
-            # 实虚分离与展平
-            w_real_imag = np.hstack([w.real, w.imag]).flatten()
-            weights.append(w_real_imag)
-
-        return torch.FloatTensor(np.concatenate(weights))
+    # def compute_weights(X_tensor, system_model, angles_grid):
+    #     """计算MVDR权重矩阵"""
+    #     X = X_tensor.numpy()  # 输入形状(N, T)
+    #     N, T = X.shape
+    #     eps = 1e-6
+    #
+    #     # 协方差矩阵计算
+    #     covariance = (X @ X.conj().T) / T
+    #     diag_load = eps * np.trace(covariance) * np.eye(N)
+    #     inv_cov = np.linalg.pinv(covariance + diag_load)
+    #
+    #     # 获取系统参数
+    #     f = system_model.max_freq[system_model.params.signal_type]
+    #     weights = []
+    #
+    #     # 遍历所有预定义角度
+    #     for angle in angles_grid:
+    #         # 导向矢量生成
+    #         a = system_model.steering_vec(
+    #             theta=np.deg2rad(angle),
+    #             f=f,
+    #             array_form="ULA",
+    #             nominal=True
+    #         ).reshape(-1, 1)
+    #
+    #         # MVDR权重计算
+    #         numerator = inv_cov @ a
+    #         denominator = a.conj().T @ inv_cov @ a
+    #         w = (numerator / denominator).squeeze()
+    #
+    #         # 实虚分离与展平
+    #         w_real_imag = np.hstack([w.real, w.imag]).flatten()
+    #         weights.append(w_real_imag)
+    #
+    #     return torch.FloatTensor(np.concatenate(weights))
     generic_dataset = []
     model_dataset = []
     samples_model = Samples(system_model_params)
@@ -212,7 +212,7 @@ def create_dataset(
             #         kernel = torch.exp(-(grid_angle - theta_tensor) ** 2 / (2 * sigma ** 2))
             #         kernel_sum += kernel
             #     Y[i] = kernel_sum
-            #
+
             # # 归一化处理(可选)
             # Y = Y / torch.max(Y)
 
