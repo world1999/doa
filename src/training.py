@@ -47,7 +47,7 @@ from src.model_transform import My_transform_Model
 from src.utils import *
 from src.criterions import *
 from src.system_model import SystemModel, SystemModelParams
-from src.models import SubspaceNet, DeepCNN, DeepAugmentedMUSIC, ModelGenerator
+from src.models import SubspaceNet, DeepCNN, DeepAugmentedMUSIC, ModelGenerator,GAN_Model
 from src.evaluation import evaluate_dnn_model, evaluate_transformer_model
 
 
@@ -145,6 +145,8 @@ class TrainingParams(object):
                 )
             elif self.model_type.startswith("DeepCNN"):
                 model = DeepCNN(N=system_model.params.N, grid_size=361)
+            elif self.model_type.startswith("GAN_Model"):
+                model = GAN_Model()
             elif self.model_type.startswith("My_transform_Model"):
                 model =My_transform_Model(num_classes=241)
             elif self.model_type.startswith("SubspaceNet"):
@@ -259,10 +261,10 @@ class TrainingParams(object):
         self
         """
         # Define loss criterion
-        if self.model_type.startswith("My_transform_Model"):
+        if self.model_type.startswith(("My_transform_Model","DeepCNN","GAN_Model")):
             self.criterion = nn.BCELoss()
-        elif self.model_type.startswith("DeepCNN"):
-            self.criterion = nn.BCELoss()
+        # elif self.model_type.startswith("DeepCNN"):
+        #     self.criterion = nn.BCELoss()
         else:
             self.criterion = RMSPELoss()
         return self
@@ -343,7 +345,54 @@ def train(
             list(range(training_parameters.epochs)), loss_train_list, loss_valid_list
         )
     return model, loss_train_list, loss_valid_list
+def train_gan(
+    system_model_params: SystemModelParams,
+    training_parameters: TrainingParams,
+    model_name: str,
+    plot_curves: bool = True,
+    saving_path: Path = None,
+):
+    """
+    Wrapper function for training the model.
 
+    Args:
+    ----------
+    - training_params (TrainingParams): An instance of TrainingParams containing the training parameters.
+    - model_name (str): The name of the model.
+    - plot_curves (bool): Flag to indicate whether to plot learning and validation loss curves. Defaults to True.
+    - saving_path (Path): The directory to save the trained model.
+
+    Returns:
+    ----------
+    model: The trained model.
+    loss_train_list: List of training loss values.
+    loss_valid_list: List of validation loss values.
+
+    Raises:
+    ----------
+    Exception: If the model type is not defined.
+    Exception: If the optimizer type is not defined.
+    """
+    # Set the seed for all available random operations
+    set_unified_seed()
+    # Current date and time
+    print("\n----------------------\n")
+    now = datetime.now()
+    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+    dt_string_for_save = now.strftime("%d_%m_%Y_%H_%M")
+    print("date and time =", dt_string)
+    # Train the model
+    model, d_loss_list, g_loss_list = train_gan_model(system_model_params,
+        training_parameters, model_name=model_name, checkpoint_path=saving_path
+    )
+    # Save models best weights
+    torch.save(model.state_dict(), saving_path / Path(dt_string_for_save))
+    # Plot learning and validation loss curves
+    if plot_curves:
+        plot_learning_curve(
+            list(range(training_parameters.epochs)),  d_loss_list, g_loss_list
+        )
+    return model, d_loss_list, g_loss_list
 
 def train_model(system_model_params: SystemModelParams,training_params: TrainingParams, model_name: str, checkpoint_path=None):
     """
@@ -497,7 +546,106 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
     model.load_state_dict(best_model_wts)
     torch.save(model.state_dict(), checkpoint_path / model_name)
     return model, loss_train_list, loss_valid_list
+def train_gan_model(system_model_params: SystemModelParams, training_params: TrainingParams, model_name: str, checkpoint_path=None):
+    """
+    Function for training GAN model.
 
+    Args:
+    -----
+        system_model_params: System model parameters
+        training_params: Training parameters including model, optimizer, etc.
+        model_name: Name of the model
+        checkpoint_path: Path to save checkpoints
+
+    Returns:
+    --------
+        model: Trained GAN model
+        d_loss_list: List of discriminator losses
+        g_loss_list: List of generator losses
+    """
+    # Initialize model and optimizers
+    model = training_params.model
+    d_optimizer = training_params.optimizer
+    g_optimizer = training_params.optimizer
+    
+    # Initialize losses
+    d_loss_list = []
+    g_loss_list = []
+    
+    # Set device
+    model.to(device)
+    
+    # Loss function
+    # criterion = nn.BCELoss()
+    
+    # Training loop
+    since = time.time()
+    print("\n---Start GAN Training Stage ---\n")
+    
+    for epoch in range(training_params.epochs):
+        d_running_loss = 0.0
+        g_running_loss = 0.0
+        
+        for i, (low_snr, high_snr) in enumerate(tqdm(training_params.train_dataset)):
+            # Convert inputs to tensors if they are lists
+            if isinstance(low_snr, list):
+                low_snr = torch.stack(low_snr)
+                high_snr = torch.stack(high_snr)
+                
+            # Prepare labels
+            real_labels = torch.ones(low_snr.size(0), 1).to(device)
+            fake_labels = torch.zeros(low_snr.size(0), 1).to(device)
+            
+            # ---------------------
+            # Train Discriminator
+            # ---------------------
+            d_optimizer.zero_grad()
+            
+            # Real data loss
+            real_outputs = model.discriminator(high_snr.to(device))
+            d_loss_real = training_params.criterion(real_outputs, real_labels)
+            
+            # Fake data loss
+            fake_data = model.generator(low_snr.to(device))
+            fake_outputs = model.discriminator(fake_data.detach())
+            d_loss_fake = training_params.criterion(fake_outputs, fake_labels)
+            
+            # Total discriminator loss
+            d_loss = d_loss_real + d_loss_fake
+            d_loss.backward()
+            d_optimizer.step()
+            
+            # -----------------
+            # Train Generator
+            # -----------------
+            g_optimizer.zero_grad()
+            fake_outputs = model.discriminator(fake_data)
+            g_loss = training_params.criterion(fake_outputs, real_labels)
+            g_loss.backward()
+            g_optimizer.step()
+            
+            # Record losses
+            d_running_loss += d_loss.item()
+            g_running_loss += g_loss.item()
+        
+        # Calculate epoch losses
+        d_epoch_loss = d_running_loss / len(training_params.train_dataset)
+        g_epoch_loss = g_running_loss / len(training_params.train_dataset)
+        d_loss_list.append(d_epoch_loss)
+        g_loss_list.append(g_epoch_loss)
+        
+        # Print progress
+        print(f"Epoch [{epoch+1}/{training_params.epochs}], "
+              f"D Loss: {d_epoch_loss:.4f}, G Loss: {g_epoch_loss:.4f}")
+    
+    # Training summary
+    time_elapsed = time.time() - since
+    print("\n--- Training summary ---")
+    print(f"Training complete in {time_elapsed//60:.0f}m {time_elapsed%60:.0f}s")
+    
+    # Save final model
+    torch.save(model.state_dict(), checkpoint_path / model_name)
+    return model, d_loss_list, g_loss_list
 
 def plot_learning_curve(epoch_list, train_loss: list, validation_loss: list):
     """
@@ -512,6 +660,24 @@ def plot_learning_curve(epoch_list, train_loss: list, validation_loss: list):
     plt.title("Learning Curve: Loss per Epoch")
     plt.plot(epoch_list, train_loss, label="Train")
     plt.plot(epoch_list, validation_loss, label="Validation")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.legend(loc="best")
+    plt.show()
+
+def plot_gan_learning_curve(epoch_list, d_loss_list: list, g_loss_list: list):
+    """
+    Plot the GAN learning curve.
+
+    Args:
+    -----
+        epoch_list (list): List of epochs.
+        d_loss_list (list): List of discriminator losses per epoch.
+        g_loss_list (list): List of generator losses per epoch.
+    """
+    plt.title("GAN Learning Curve: Loss per Epoch")
+    plt.plot(epoch_list, d_loss_list, label="Discriminator Loss")
+    plt.plot(epoch_list, g_loss_list, label="Generator Loss")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
     plt.legend(loc="best")

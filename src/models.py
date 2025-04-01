@@ -126,9 +126,9 @@ class Discriminator(torch.nn.Module):
         super(Discriminator, self).__init__()
         self.model = torch.nn.Sequential(
             # 输入: 3x32x32
-            torch.nn.Conv2d(3, 32, kernel_size=4, stride=1, padding=0),
+            torch.nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
             torch.nn.ReLU(),
-            # 32x29x29
+            # 32x32x32
             
             torch.nn.Conv2d(32, 128, kernel_size=4, stride=2, padding=1),
             torch.nn.ReLU(),
@@ -147,7 +147,7 @@ class Discriminator(torch.nn.Module):
             # 512x1x1
             
             torch.nn.Flatten(),
-            torch.nn.Linear(512, 1),
+            torch.nn.Linear(512*1*1, 1),
             torch.nn.Sigmoid()
         )
     
@@ -313,6 +313,8 @@ class ModelGenerator(object):
             )
         elif self.model_type.startswith("DeepCNN"):
             self.model = DeepCNN(N=system_model_params.N, grid_size=system_model_params.grid_size)
+        elif self.model_type.startswith("GAN_Model"):
+            self.model = GAN_Model()
         elif self.model_type.startswith("My_transform_Model"):
             self.model = My_transform_Model(num_classes=system_model_params.grid_size, N=system_model_params.N)
         elif self.model_type.startswith("OffgridDOA"):

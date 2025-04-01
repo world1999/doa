@@ -36,7 +36,7 @@ from tqdm import tqdm
 from src.signal_creation import Samples
 from pathlib import Path
 from src.system_model import SystemModelParams
-
+import copy
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 config = {
@@ -62,8 +62,55 @@ config = {
     'lr': 0.001,
     'loss_weights': (100, 0.1)
 }
-
-
+def generate_combined_data(param_groups, base_params, model_config, samples_size, datasets_path):
+                    combined_data = []
+                    for i in range(0, len(param_groups), 2):
+                        # 同时处理low和high信噪比参数组
+                        low_data, _, _ = create_dataset(
+                            system_model_params=param_groups[i]["system_model_params"],
+                            samples_size=samples_size,
+                            model_type=model_config.model_type,
+                            tau=model_config.tau,
+                            save_datasets=False,
+                            datasets_path=datasets_path,
+                            true_doa=None,
+                            phase="train"
+                        )
+                        high_data, _, _ = create_dataset(
+                            system_model_params=param_groups[i+1]["system_model_params"],
+                            samples_size=samples_size,
+                            model_type=model_config.model_type,
+                            tau=model_config.tau,
+                            save_datasets=False,
+                            datasets_path=datasets_path,
+                            true_doa=None,
+                            phase="train"
+                        )
+                        
+                        # # 确保数据维度一致
+                        # if low_data[0].size() != high_data[0].size():
+                        #     # 如果维度不匹配，调整high_snr数据维度
+                        #     high_data = [torch.nn.functional.interpolate(
+                        #         high.unsqueeze(0).unsqueeze(0),
+                        #         size=low_data[0].size(),
+                        #         mode='bilinear'
+                        #     ).squeeze() for high in high_data]
+                        
+                        # 将匹配的low和high数据组成对存储
+                        for low, high in zip(low_data, high_data):
+                            combined_data.append((low[0], high[0]))
+                        del low_data, high_data
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    return combined_data
+def generate_param_groups(snr_values, base_params):
+    param_groups = []
+    for snr in snr_values:
+        new_params = copy.deepcopy(base_params).set_parameter("snr", snr)
+        param_groups.append({
+            "system_model_params": new_params,
+        })
+    return param_groups
 def create_dataset(
         system_model_params: SystemModelParams,
         samples_size: float,
@@ -136,7 +183,7 @@ def create_dataset(
     # if (model_type.startswith("OffgridDOA"))and phase.startswith("train"):
     #
     # Generate permutations for CNN-based model training datasets
-    if (model_type.startswith(("My_transform_Model", "DeepCNN")) and
+    if (model_type.startswith(("My_transform_Model", "DeepCNN","GAN")) and
             phase.startswith("train")):
         # 参数设置（添加到系统参数中）
         total_samples = samples_size  # 自定义样本总数
@@ -178,6 +225,8 @@ def create_dataset(
                 X_model = create_rx_tensor(X)
             elif model_type.startswith("DeepCNN"):
                 X_model = create_cov_tensor(X)
+            elif model_type.startswith("GAN"):
+                X_model = create_cov_tensor(X).permute(2, 0, 1)  # 将通道维度调整到第二位
 
             # Ground-truth creation (One-Hot encoding)
             Y = torch.zeros_like(torch.tensor(angles_grid))
