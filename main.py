@@ -30,7 +30,7 @@ from src.signal_creation import *
 from src.data_handler import *
 from src.criterions import set_criterions
 from src.training import *
-from src.evaluation import evaluate
+from src.evaluation import evaluate, evaluate_model_based
 from src.plotting import initialize_figures
 from pathlib import Path
 from src.models import ModelGenerator
@@ -64,10 +64,10 @@ if __name__ == "__main__":
         "SAVE_TO_FILE": True,  # Saving results to file or present them over CMD
         "CREATE_DATA": True,  # Creating new dataset
         "LOAD_DATA": False,  # Loading data from exist dataset
-        "LOAD_MODEL": True,  # Load specific model for training
+        "LOAD_MODEL": False,  # Load specific model for training
         "TRAIN_MODEL": False,  # Applying training operation
         "SAVE_MODEL": False ,  # Saving tuned model
-        "EVALUATE_MODE": True,  # Evaluating desired algorithms
+        "EVALUATE_MODE": False,  # Evaluating desired algorithms
     }
     #训练
     # commands = {
@@ -84,9 +84,9 @@ if __name__ == "__main__":
     # Define system model parameters
     base_params = (
         SystemModelParams()
-        .set_parameter("N", 16)
+        .set_parameter("N", 32)
         .set_parameter("M", 2)
-        .set_parameter("T", 2000)
+        .set_parameter("T", 100)
         .set_parameter("grid_size", 121)  # 设置网格点数量
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
@@ -106,7 +106,7 @@ if __name__ == "__main__":
         # 定义需要遍历的snr值列表 t:3161845  3162036 3162104 3162138
         # test_snr = range(-13,6,1)
         # test_snr = [-10,-5,0,10]
-        test_snr = range(-10,6,1)
+        test_snr = range(-10,-9,1)
         # test_snr=[10]
         # Define samples size
         samples_size = 30000  # Overall dateset size
@@ -178,7 +178,7 @@ if __name__ == "__main__":
                     # Generate test dataset
                     test_dataset, generic_test_dataset, samples_model = create_dataset(
                         system_model_params=system_model_params1,
-                        samples_size=100,
+                        samples_size=10,
                         # samples_size=int(train_test_ratio * samples_size),
                         model_type=model_config.model_type,
                         tau=model_config.tau,
@@ -311,6 +311,53 @@ if __name__ == "__main__":
                     training_params=simulation_parameters
                     # augmented_methods='mvdr'
                 )
+            elif not commands["EVALUATE_MODE"] :
+                # Initialize figures dict for plotting
+                figures = initialize_figures()
+                # Load datasets for evaluation
+                if not (commands["CREATE_DATA"] or commands["LOAD_DATA"]):
+                    test_dataset, generic_test_dataset, samples_model = load_datasets(
+                        system_model_params=system_model_params1,
+                        model_type=model_config.model_type,
+                        samples_size=samples_size,
+                        datasets_path=datasets_path,
+                        train_test_ratio=train_test_ratio,
+                    )
+
+                # Generate DataLoader objects
+                model_test_dataset = torch.utils.data.DataLoader(
+                    test_dataset, batch_size=1, shuffle=False, drop_last=False
+                )
+                generic_test_dataset = torch.utils.data.DataLoader(
+                    generic_test_dataset, batch_size=1, shuffle=False, drop_last=False
+                )
+                # Load pre-trained model
+                if not commands["TRAIN_MODEL"]:
+                    # Define an evaluation parameters instance
+                    simulation_parameters = TrainingParams()
+
+
+                    # model = simulation_parameters.model
+                # simulation_summary(
+                #     system_model_params=system_model_params1,  ###总结训练过程
+                #     model_type=model_config.model_type,
+                #     phase="evaluation",
+                #     parameters=simulation_parameters,
+                # )
+                # Define loss measure for evaluation
+                criterion, subspace_criterion = set_criterions("rmse")
+                loss, accuracy = evaluate_model_based(
+                    system_model_params1,
+                    generic_test_dataset,
+                    samples_model,
+                    criterion=subspace_criterion,
+                    plot_spec=True,
+                    algorithm='mvdr',
+                    figures=figures,
+                )
+                print("{} test loss = {}".format('mvdr'.lower(), loss * R2D))
+                print(f" mvdr accuracy = {accuracy}")
+
                 # 在主要评估代码最后添加：
                 # if "comparison" in figures and figures["comparison"]["fig"] is not None:
                 #     ax = figures["comparison"]["ax"]

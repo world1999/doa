@@ -64,24 +64,21 @@ class Generator(torch.nn.Module):
         # 编码器部分
         self.enc1 = torch.nn.Sequential(
             torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1),
-            torch.nn.LeakyReLU(0.2)
+            torch.nn.BatchNorm2d(64),
+            torch.nn.ReLU()
         )
         self.enc2 = torch.nn.Sequential(
             torch.nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
             torch.nn.BatchNorm2d(128),
-            torch.nn.LeakyReLU(0.2)
+            torch.nn.ReLU()
         )
         self.pool1 = torch.nn.MaxPool2d(2, stride=2)  # 16x16
         self.enc3 = torch.nn.Sequential(
             torch.nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
             torch.nn.BatchNorm2d(256),
-            torch.nn.LeakyReLU(0.2)
+            torch.nn.ReLU()
         )
-        self.enc4 = torch.nn.Sequential(
-            torch.nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-            torch.nn.BatchNorm2d(256),
-            torch.nn.LeakyReLU(0.2)
-        )
+       
         
         # 解码器部分
         self.dec1 = torch.nn.Sequential(
@@ -91,18 +88,14 @@ class Generator(torch.nn.Module):
         )
         self.upsample1 = torch.nn.Upsample(scale_factor=2, mode='nearest')  # 16x16->32x32
         self.dec2 = torch.nn.Sequential(
-            torch.nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
-            torch.nn.BatchNorm2d(128),
-            torch.nn.ReLU()
-        )
-        self.dec3 = torch.nn.Sequential(
-            torch.nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
+            torch.nn.Conv2d(256, 64, kernel_size=3, stride=1, padding=1),
             torch.nn.BatchNorm2d(64),
             torch.nn.ReLU()
         )
-        self.final = torch.nn.Sequential(
-            torch.nn.Conv2d(64, 3, kernel_size=3, stride=1, padding=1),
-            torch.nn.Tanh()
+        self.dec3 = torch.nn.Sequential(
+            torch.nn.Conv2d(128, 3, kernel_size=3, stride=1, padding=1),
+            torch.nn.BatchNorm2d(3),
+            torch.nn.ReLU()
         )
     
     def forward(self, x):
@@ -114,12 +107,12 @@ class Generator(torch.nn.Module):
         
         # 解码过程
         dec1 = self.dec1(enc3)    # 128x16x16
-        dec1_up = self.upsample1(dec1)  # 128x32x32
-        dec2 = self.dec2(torch.cat([dec1_up, enc2], dim=1))  # 256->128x32x32
-        dec3 = self.dec3(dec2)    # 64x32x32
+        dec1_up = self.upsample1(dec1)  # 128x32x32  不改变尺寸
+        dec2 = self.dec2(torch.cat([dec1_up, enc2], dim=1))  # (128+128)x32x32->64x32x32
+        dec3 = self.dec3(torch.cat([dec2, enc1], dim=1))    # (64+64)x32x32->3*32*32
         
         # 最终输出
-        return self.final(dec3)   # 3x32x32
+        return dec3   # 3x32x32
 
 class Discriminator(torch.nn.Module):
     def __init__(self):
@@ -127,15 +120,15 @@ class Discriminator(torch.nn.Module):
         self.model = torch.nn.Sequential(
             # 输入: 3x32x32
             torch.nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(0.2),
             # 32x32x32
             
             torch.nn.Conv2d(32, 128, kernel_size=4, stride=2, padding=1),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(0.2),
             # 128x16x16
             
             torch.nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(0.2),
             # 256x8x8
             
             torch.nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1),

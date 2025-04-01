@@ -389,7 +389,7 @@ def train_gan(
     torch.save(model.state_dict(), saving_path / Path(dt_string_for_save))
     # Plot learning and validation loss curves
     if plot_curves:
-        plot_learning_curve(
+        plot_gan_learning_curve(
             list(range(training_parameters.epochs)),  d_loss_list, g_loss_list
         )
     return model, d_loss_list, g_loss_list
