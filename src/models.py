@@ -86,15 +86,18 @@ class Generator(torch.nn.Module):
             torch.nn.BatchNorm2d(128),
             torch.nn.ReLU()
         )
-        self.upsample1 = torch.nn.Upsample(scale_factor=2, mode='nearest')  # 16x16->32x32
+        # self.upsample1 = torch.nn.Upsample(scale_factor=2, mode='nearest')  # 16x16->32x32 这里只使用了上采样，没有使用转置卷积，下面forward中也改
+        self.upsample = torch.nn.Upsample(scale_factor=2, mode='nearest')
+        # self.deconv_after_upsample = torch.nn.ConvTranspose2d(128, 128, kernel_size=3, stride=1, padding=1)  # 16x16->32x32
+        self.deconv_after_upsample = torch.nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)  # 保持通道数和尺寸不变
         self.dec2 = torch.nn.Sequential(
             torch.nn.Conv2d(256, 64, kernel_size=3, stride=1, padding=1),
-            torch.nn.BatchNorm2d(64),
+            # torch.nn.BatchNorm2d(64),
             torch.nn.ReLU()
         )
         self.dec3 = torch.nn.Sequential(
             torch.nn.Conv2d(128, 3, kernel_size=3, stride=1, padding=1),
-            torch.nn.BatchNorm2d(3),
+            # torch.nn.BatchNorm2d(3),
             torch.nn.ReLU()
         )
     
@@ -107,7 +110,9 @@ class Generator(torch.nn.Module):
         
         # 解码过程
         dec1 = self.dec1(enc3)    # 128x16x16
-        dec1_up = self.upsample1(dec1)  # 128x32x32  不改变尺寸
+        # dec1_up = self.upsample1(dec1)  # 128x32x32  不改变通道数  这里只使用了上采样，没有使用转置卷积
+        dec1_up = self.upsample(dec1)  # 128x32x32  不改变通道数
+        dec1_up = self.deconv_after_upsample(dec1_up)  # 应用转置卷积
         dec2 = self.dec2(torch.cat([dec1_up, enc2], dim=1))  # (128+128)x32x32->64x32x32
         dec3 = self.dec3(torch.cat([dec2, enc1], dim=1))    # (64+64)x32x32->3*32*32
         

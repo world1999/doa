@@ -189,7 +189,11 @@ class TrainingParams(object):
         self
         """
         # Load model from given path
-        self.model.load_state_dict(torch.load(loading_path, map_location=device))
+        state_dict = torch.load(loading_path, map_location=device)
+        # Handle multi-GPU trained model being loaded into single-GPU environment
+        if all(key.startswith('module.') for key in state_dict.keys()):
+            state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+        self.model.load_state_dict(state_dict)
         return self
 
     def set_optimizer(self, optimizer: str, learning_rate: float, weight_decay: float):
@@ -572,6 +576,14 @@ def train_gan_model(system_model_params: SystemModelParams, training_params: Tra
     d_loss_list = []
     g_loss_list = []
     
+    # Set main device to 5090D (device 0)
+    torch.cuda.set_device(0)
+    
+    # Check available GPUs and setup parallel training
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs for training!")
+        model = nn.DataParallel(model)
+    
     # Set device
     model.to(device)
     
@@ -602,12 +614,12 @@ def train_gan_model(system_model_params: SystemModelParams, training_params: Tra
             d_optimizer.zero_grad()
             
             # Real data loss
-            real_outputs = model.discriminator(high_snr.to(device))
+            real_outputs = model.module.discriminator(high_snr.to(device))
             d_loss_real = training_params.criterion(real_outputs, real_labels)
             
             # Fake data loss
-            fake_data = model.generator(low_snr.to(device))
-            fake_outputs = model.discriminator(fake_data.detach())
+            fake_data = model.module.generator(low_snr.to(device))
+            fake_outputs = model.module.discriminator(fake_data.detach())
             d_loss_fake = training_params.criterion(fake_outputs, fake_labels)
             
             # Total discriminator loss
@@ -619,7 +631,7 @@ def train_gan_model(system_model_params: SystemModelParams, training_params: Tra
             # Train Generator
             # -----------------
             g_optimizer.zero_grad()
-            fake_outputs = model.discriminator(fake_data)
+            fake_outputs = model.module.discriminator(fake_data)
             g_loss = training_params.criterion(fake_outputs, real_labels)
             g_loss.backward()
             g_optimizer.step()

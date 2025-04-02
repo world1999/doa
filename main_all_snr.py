@@ -92,9 +92,9 @@ if __name__ == "__main__":
 
     base_params = (  #by j1 start    训练模型用
         SystemModelParams()
-        .set_parameter("N", 16)
+        .set_parameter("N", 32)
         .set_parameter("M", 2)
-        .set_parameter("T", 1000)
+        .set_parameter("T", 100)
         .set_parameter("grid_size", 241)  # 添加网格点参数
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
@@ -103,10 +103,10 @@ if __name__ == "__main__":
         .set_parameter("sv_noise_var", 0)
         .set_parameter("gap", 10)
     )
-    test_mode = [3191427]#训练模型用
-    grid_use = [61]
+    test_mode = [411627]#训练模型用
+    grid_use = [121]
     # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
-    snr_values_use = [[-10]]
+    snr_values_use = [[-10,-5,0]]
     for i, test_mode_snr in enumerate(test_mode):
         base_params = copy.deepcopy(base_params).set_parameter("grid_size", grid_use[i])
         system_model_params = copy.deepcopy(base_params).set_parameter("snr",
@@ -229,8 +229,8 @@ if __name__ == "__main__":
             # Assign the training parameters object
             simulation_parameters = (
                 TrainingParams()
-                .set_batch_size(1024)
-                .set_epochs(10)
+                .set_batch_size(512)
+                .set_epochs(50)
                 .set_model(model=model_config)
                 .set_optimizer(optimizer="Adam", learning_rate=0.0001,
                                weight_decay=1e-7)  #learning_rate=0.00001, weight_decay=1e-9

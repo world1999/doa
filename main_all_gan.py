@@ -99,7 +99,7 @@ if __name__ == "__main__":
         .set_parameter("N", 32)
         .set_parameter("M", 2)
         .set_parameter("T", 100)
-        .set_parameter("grid_size", 241)  # 添加网格点参数
+        .set_parameter("grid_size", 121)  # 添加网格点参数
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
         .set_parameter("eta", 0)
@@ -108,7 +108,7 @@ if __name__ == "__main__":
         .set_parameter("gap", 10)
     )
     system_model_params1= copy.deepcopy(base_params).set_parameter("snr", 0)  # 测试集生成
-    test_mode = [411552]#训练模型用，同时设置多个训练轮数
+    test_mode = [420951]#训练模型用，同时设置多个训练轮数
     grid_use = [121]
     # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
     low_snr_values_use = [[-10]]#条件输入
@@ -211,13 +211,13 @@ if __name__ == "__main__":
             if commands["TRAIN_MODEL"]:
                 simulation_parameters = (
                     TrainingParams()
-                    .set_batch_size(64)
-                    .set_epochs(100)
+                    .set_batch_size(128)
+                    .set_epochs(50)
                     .set_model(model=model_config)
-                    .set_optimizer(optimizer="Adam", learning_rate=0.001,
+                    .set_optimizer(optimizer="Adam", learning_rate=0.0001,
                                    weight_decay=1e-7)  #learning_rate=0.00001, weight_decay=1e-9
                     .set_training_dataset(combined_dataset)  #by j
-                    .set_schedular(step_size=10, gamma=0.5)
+                    .set_schedular(step_size=20, gamma=0.5)
                     .set_criterion()  #自动设置成nn.BCELoss()  非常关键，训练的时候要设置
                 )
             
@@ -229,9 +229,9 @@ if __name__ == "__main__":
                     .set_epochs(100)
                     .set_model(model=model_config)
                      .set_optimizer(optimizer="Adam", learning_rate=0.0001,
-                                   weight_decay=1e-7)
+                                   weight_decay=1e-5)
                     .set_training_dataset(combined_dataset)  #by j
-                    .set_schedular(step_size=15, gamma=0.5)       
+                    .set_schedular(step_size=100, gamma=0.5)
                     .set_criterion()
                 )
             if commands["LOAD_MODEL"]:
