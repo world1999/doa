@@ -552,7 +552,7 @@ def train_model(system_model_params: SystemModelParams,training_params: Training
     return model, loss_train_list, loss_valid_list
 def train_gan_model(system_model_params: SystemModelParams, training_params: TrainingParams, model_name: str, checkpoint_path=None):
     """
-    Function for training GAN model.
+    Function for training GAN model with WGAN-GP.
 
     Args:
     -----
@@ -587,12 +587,12 @@ def train_gan_model(system_model_params: SystemModelParams, training_params: Tra
     # Set device
     model.to(device)
     
-    # Loss function
-    # criterion = nn.BCELoss()
+    # Gradient penalty coefficient
+    lambda_gp = 10
     
     # Training loop
     since = time.time()
-    print("\n---Start GAN Training Stage ---\n")
+    print("\n---Start WGAN-GP Training Stage ---\n")
     
     for epoch in range(training_params.epochs):
         d_running_loss = 0.0
@@ -603,42 +603,59 @@ def train_gan_model(system_model_params: SystemModelParams, training_params: Tra
             if isinstance(low_snr, list):
                 low_snr = torch.stack(low_snr)
                 high_snr = torch.stack(high_snr)
-                
-            # Prepare labels
-            real_labels = torch.ones(low_snr.size(0), 1).to(device)
-            fake_labels = torch.zeros(low_snr.size(0), 1).to(device)
+            
+            # Get batch size
+            batch_size = low_snr.size(0)
             
             # ---------------------
             # Train Discriminator
             # ---------------------
             d_optimizer.zero_grad()
             
-            # Real data loss
-            real_outputs = model.module.discriminator(high_snr.to(device))
-            d_loss_real = training_params.criterion(real_outputs, real_labels)
+            # Real data
+            real_data = high_snr.to(device)
+            real_outputs = model.module.discriminator(real_data)
             
-            # Fake data loss
+            # Fake data
             fake_data = model.module.generator(low_snr.to(device))
             fake_outputs = model.module.discriminator(fake_data.detach())
-            d_loss_fake = training_params.criterion(fake_outputs, fake_labels)
             
-            # Total discriminator loss
-            d_loss = d_loss_real + d_loss_fake
-            d_loss.backward()
+            # Gradient penalty
+            alpha = torch.rand(batch_size, 1, 1, 1, device=device)
+            interpolates = (alpha * real_data + ((1 - alpha) * fake_data)).requires_grad_(True)
+            d_interpolates = model.module.discriminator(interpolates)
+            
+            gradients = torch.autograd.grad(
+                outputs=d_interpolates,
+                inputs=interpolates,
+                grad_outputs=torch.ones_like(d_interpolates),
+                create_graph=True,
+                retain_graph=True,
+                only_inputs=True,
+            )[0]
+            
+            gradients = gradients.view(gradients.size(0), -1)
+            gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * lambda_gp
+            
+            # Wasserstein loss
+            d_loss = -torch.mean(real_outputs) + torch.mean(fake_outputs) + gradient_penalty
+            d_loss.backward(retain_graph=True)
             d_optimizer.step()
             
             # -----------------
             # Train Generator
             # -----------------
-            g_optimizer.zero_grad()
-            fake_outputs = model.module.discriminator(fake_data)
-            g_loss = training_params.criterion(fake_outputs, real_labels)
-            g_loss.backward()
-            g_optimizer.step()
+            if i % 5 == 0:  # Train generator less frequently
+                g_optimizer.zero_grad()
+                # Detach fake_data to prevent inplace operation issues
+                fake_outputs = model.module.discriminator(fake_data.detach())
+                g_loss = -torch.mean(fake_outputs)
+                g_loss.backward(retain_graph=True)
+                g_optimizer.step()
+                g_running_loss += g_loss.item()
             
-            # Record losses
+            # Record discriminator loss
             d_running_loss += d_loss.item()
-            g_running_loss += g_loss.item()
         
         # Calculate epoch losses
         d_epoch_loss = d_running_loss / len(training_params.train_dataset)
