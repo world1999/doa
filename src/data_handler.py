@@ -66,16 +66,6 @@ def generate_combined_data(param_groups, base_params, model_config, samples_size
                     combined_data = []
                     for i in range(0, len(param_groups), 2):
                         # 同时处理low和high信噪比参数组
-                        low_data, _, _ = create_dataset(
-                            system_model_params=param_groups[i]["system_model_params"],
-                            samples_size=samples_size,
-                            model_type=model_config.model_type,
-                            tau=model_config.tau,
-                            save_datasets=False,
-                            datasets_path=datasets_path,
-                            true_doa=None,
-                            phase="train"
-                        )
                         high_data, _, _ = create_dataset(
                             system_model_params=param_groups[i+1]["system_model_params"],
                             samples_size=samples_size,
@@ -87,19 +77,28 @@ def generate_combined_data(param_groups, base_params, model_config, samples_size
                             phase="train"
                         )
                         
-                        # # 确保数据维度一致
-                        # if low_data[0].size() != high_data[0].size():
-                        #     # 如果维度不匹配，调整high_snr数据维度
-                        #     high_data = [torch.nn.functional.interpolate(
-                        #         high.unsqueeze(0).unsqueeze(0),
-                        #         size=low_data[0].size(),
-                        #         mode='bilinear'
-                        #     ).squeeze() for high in high_data]
+                        # 为每个低信噪比样本生成5个不同的随机噪声版本
+                        low_data_list = []
+                        for _ in range(5):
+                            low_data, _, _ = create_dataset(
+                                system_model_params=param_groups[i]["system_model_params"],
+                                samples_size=samples_size,
+                                model_type=model_config.model_type,
+                                tau=model_config.tau,
+                                save_datasets=False,
+                                datasets_path=datasets_path,
+                                true_doa=None,
+                                phase="train"
+                            )
+                            low_data_list.append(low_data)
+                            
+                        # 将匹配的low和high数据组成对存储，并保留角度标签
+                        for low, high in zip(low_data_list[0], high_data):
+                            # 存储七元组：(5个低信噪比样本, 高信噪比样本, 角度标签)
+                            combined_data.append(([ld[0] for ld in low_data_list], high[0], low[1]))
                         
-                        # 将匹配的low和high数据组成对存储
-                        for low, high in zip(low_data, high_data):
-                            combined_data.append((low[0], high[0]))
-                        del low_data, high_data
+                        del low_data_list
+                        del high_data
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
                     return combined_data
@@ -111,6 +110,34 @@ def generate_param_groups(snr_values, base_params):
             "system_model_params": new_params,
         })
     return param_groups
+def create_gan_dataset(self):
+        # 生成三元组数据（协方差矩阵，角度标签，高信噪比样本）
+        cov_matrices = []
+        angles = []
+        high_snr_samples = []
+        
+        # 生成带角度条件的训练样本
+        for _ in range(self.params.num_samples):
+            # 生成随机角度标签
+            true_angle = np.random.randint(-60, 61)
+            
+            # 生成对应角度的协方差矩阵
+            signal = self.create_signal(angles=[true_angle])
+            cov_matrix = np.cov(signal)
+            
+            # 生成高信噪比参考样本
+            high_snr_signal = self.create_signal(angles=[true_angle], SNR=30)
+            
+            cov_matrices.append(cov_matrix)
+            angles.append(true_angle)
+            high_snr_samples.append(high_snr_signal)
+        
+        return {
+            'covariance': torch.FloatTensor(np.array(cov_matrices)),
+            'angles': torch.LongTensor(np.array(angles)),
+            'high_snr': torch.FloatTensor(np.array(high_snr_samples))
+        }
+
 def create_dataset(
         system_model_params: SystemModelParams,
         samples_size: float,
@@ -482,6 +509,11 @@ def create_cov_tensor(X: torch.Tensor):
     Rx = torch.cov(X)
     # Rx = torch.cov(X.T)
     # Rx=X
+    
+    # 归一化处理，将值缩放到[-1,1]范围
+    max_val = torch.max(torch.abs(Rx))
+    Rx = Rx / (max_val + 1e-6)  # 防止除以0
+    
     Rx_tensor = torch.stack((torch.real(Rx), torch.imag(Rx), torch.angle(Rx)), 2)
     return Rx_tensor
 
@@ -533,6 +565,48 @@ def create_rx_tensor(X):
     Rx_tensor = torch.stack([channel1, channel2, channel3, channel4], dim=-1)
 
     return Rx_tensor
+
+class InfoGANTraining:
+    def __init__(self, model, data_loader):
+        self.model = model
+        self.data_loader = data_loader
+        self.optim_G = torch.optim.Adam(model.generator.parameters(), lr=2e-4)
+        self.optim_D = torch.optim.Adam(model.discriminator.parameters(), lr=2e-4)
+
+    def train_step(self, real_cov):
+        # 训练判别器
+        self.optim_D.zero_grad()
+        
+        # 生成随机噪声和角度
+        z = torch.randn(real_cov.size(0), 128)
+        angles = torch.randint(0, 180, (real_cov.size(0),))
+        
+        # 生成样本并计算损失
+        fake_cov = model.generator(z, angles)
+        real_validity, real_angle_pred = model.discriminator(real_cov)
+        fake_validity, fake_angle_pred = model.discriminator(fake_cov.detach())
+        
+        # 计算对抗损失和角度分类损失
+        d_loss_adv = -torch.mean(torch.log(real_validity + 1e-8) + torch.log(1 - fake_validity + 1e-8))
+        d_loss_cls = model.mutual_info_loss(real_angle_pred, angles)
+        d_loss = d_loss_adv + d_loss_cls
+        d_loss.backward()
+        self.optim_D.step()
+
+        # 训练生成器
+        self.optim_G.zero_grad()
+        fake_validity, fake_angle_pred = model.discriminator(fake_cov)
+        g_loss_adv = -torch.mean(torch.log(fake_validity + 1e-8))
+        g_loss_cls = model.mutual_info_loss(fake_angle_pred, angles)
+        g_loss = g_loss_adv + g_loss_cls
+        g_loss.backward()
+        self.optim_G.step()
+        
+        return {'d_loss': d_loss.item(), 'g_loss': g_loss.item()}
+
+
+# class TrainingLoop:
+
 
 def load_datasets(
     system_model_params: SystemModelParams,

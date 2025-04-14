@@ -108,10 +108,10 @@ if __name__ == "__main__":
         .set_parameter("gap", 10)
     )
     system_model_params1= copy.deepcopy(base_params).set_parameter("snr", 0)  # 测试集生成
-    test_mode = [420951]#训练模型用，同时设置多个训练轮数
+    test_mode = [4132351]#训练模型用，同时设置多个训练轮数
     grid_use = [121]
     # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
-    low_snr_values_use = [[-10]]#条件输入
+    low_snr_values_use = [[9]]#条件输入
     high_snr_values_use = [[10]]# 目标SNR
     for i, test_mode_snr in enumerate(test_mode):
         base_params = copy.deepcopy(base_params).set_parameter("grid_size", grid_use[i])
@@ -211,7 +211,7 @@ if __name__ == "__main__":
             if commands["TRAIN_MODEL"]:
                 simulation_parameters = (
                     TrainingParams()
-                    .set_batch_size(128)
+                    .set_batch_size(256)
                     .set_epochs(50)
                     .set_model(model=model_config)
                     .set_optimizer(optimizer="Adam", learning_rate=0.0001,
@@ -225,13 +225,13 @@ if __name__ == "__main__":
               
                 simulation_parameters = (
                     TrainingParams()
-                    .set_batch_size(64)
-                    .set_epochs(100)
+                    .set_batch_size(128)
+                    .set_epochs(300)
                     .set_model(model=model_config)
                      .set_optimizer(optimizer="Adam", learning_rate=0.0001,
                                    weight_decay=1e-5)
                     .set_training_dataset(combined_dataset)  #by j
-                    .set_schedular(step_size=100, gamma=0.5)
+                    .set_schedular(step_size=30, gamma=0.5)
                     .set_criterion()
                 )
             if commands["LOAD_MODEL"]:
@@ -246,7 +246,7 @@ if __name__ == "__main__":
                 phase="training",
             )
             # Perform simulation training and evaluation stages
-            model,  d_loss_list, g_loss_list = train_gan(
+            model, adv_loss_list, cls_loss_list, snr_loss_list = train_gan(
                 system_model_params=base_params,
                 training_parameters=simulation_parameters,
                 model_name=simulation_filename,

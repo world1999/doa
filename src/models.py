@@ -43,7 +43,7 @@ import torch.nn as nn
 import numpy as np
 import warnings
 # from src.training import OffgridDOA
-from src.model_transform import My_transform_Model
+from src.model_transform import *
 from src.utils import gram_diagonal_overload, device
 from src.utils import sum_of_diags_torch, find_roots_torch
 
@@ -52,15 +52,34 @@ warnings.simplefilter("ignore")
 # Constants
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 class GAN_Model(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, num_angles):
         super(GAN_Model, self).__init__()
+        self.num_angles = num_angles
         self.generator = Generator()
-        self.discriminator = Discriminator()
+        # self.discriminator = Discriminator(num_angles=self.num_angles)
+        self.discriminator = TransformerDiscriminator(num_angles=self.num_angles,N=32)   #判别器增加深度  模型和阵元数有关系
+        
+
+    def mutual_info_loss(self, validity_pred, angle_pred, snr_pred, true_labels):
+        # 多任务损失计算
+        bce_loss = nn.BCELoss()(validity_pred, true_labels[:, 0].float())
+        angle_loss = nn.CrossEntropyLoss()(angle_pred, true_labels[:, 1].long())
+        snr_loss = nn.MSELoss()(snr_pred.squeeze(), torch.full_like(true_labels[:, 2].float(), 10.0))#不管什么标签，snr_loss都是10
+        
+        # 加权总损失（可根据任务调整权重）
+        total_loss = 0.5*bce_loss + 0.3*angle_loss + 0.2*snr_loss
+        return total_loss
+
+    def forward(self, z, angles):
+        # 生成阶段
+        gen_samples = self.generator(z)
+        # 判别阶段
+        validity, angle_pred, snr_pred = self.discriminator(gen_samples)
+        return validity, angle_pred, snr_pred
 
 class Generator(torch.nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
-        
         # 编码器部分
         self.enc1 = torch.nn.Sequential(
             torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1),
@@ -92,13 +111,13 @@ class Generator(torch.nn.Module):
         self.deconv_after_upsample = torch.nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)  # 保持通道数和尺寸不变
         self.dec2 = torch.nn.Sequential(
             torch.nn.Conv2d(256, 64, kernel_size=3, stride=1, padding=1),
-            # torch.nn.BatchNorm2d(64),
+            torch.nn.BatchNorm2d(64),
             torch.nn.ReLU()
         )
         self.dec3 = torch.nn.Sequential(
             torch.nn.Conv2d(128, 3, kernel_size=3, stride=1, padding=1),
-            # torch.nn.BatchNorm2d(3),
-            torch.nn.ReLU()
+            torch.nn.BatchNorm2d(3),
+            torch.nn.Tanh()# 输出范围在-1到1之间，适合图像生成任务？协方差矩阵呢？
         )
     
     def forward(self, x):
@@ -119,35 +138,135 @@ class Generator(torch.nn.Module):
         # 最终输出
         return dec3   # 3x32x32
 
-class Discriminator(torch.nn.Module):
-    def __init__(self):
-        super(Discriminator, self).__init__()
-        self.model = torch.nn.Sequential(
-            # 输入: 3x32x32
-            torch.nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
-            torch.nn.LeakyReLU(0.2),
-            # 32x32x32
-            
-            torch.nn.Conv2d(32, 128, kernel_size=4, stride=2, padding=1),
-            torch.nn.LeakyReLU(0.2),
-            # 128x16x16
-            
-            torch.nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
-            torch.nn.LeakyReLU(0.2),
-            # 256x8x8
-            
-            torch.nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1),
-            torch.nn.LeakyReLU(0.2),
-            # 512x4x4
-            
-            torch.nn.Conv2d(512, 512, kernel_size=4, stride=1, padding=0),
-            torch.nn.LeakyReLU(0.2),
-            # 512x1x1
-            
-            torch.nn.Flatten(),
-            torch.nn.Linear(512*1*1, 1),
-            torch.nn.Sigmoid()
+class TransformerDiscriminator(torch.nn.Module):
+    def __init__(self, num_angles=121, N=32):
+        super(TransformerDiscriminator, self).__init__()
+        
+        # 输入层处理
+        self.cba1 = CBAModule(3, 32, 3, 1, 1)
+        self.conv1 = nn.Conv2d(32, 64, 2, stride=2, padding=0)
+        self.lkr_mhsa = LKR_MHSA(64, 8, N)
+        self.cba3 = CBAModule(64, 128, 2, 2, (1, 0))
+        self.mhsa1 = MultiHeadAttention(128, 128, 8)
+        self.cba4 = CBAModule(128, 256, 2, 2, (1, 0))
+        self.mhsa2 = MultiHeadAttention(256, 256, 8)
+        self.flatten = nn.Flatten()
+        
+        # 共享特征层
+        self.shared_fc = nn.Linear(256 * 10 * 4, 1024)
+        
+        # 真伪判别分支
+        self.validity = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.LeakyReLU(0.2),
+            nn.Linear(512, 1),
+            nn.Sigmoid()
         )
+        
+        # 角度分类分支
+        self.angle_cls = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, num_angles)
+        )
+        
+        # 信噪比回归分支
+        self.snr_reg = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Linear(512, 128),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+        
+        self.dropout = nn.Dropout(0.3)
+
+    def forward(self, x):
+        # 输入形状处理 (batchsize,3,H,W)
+        x = x.float()
+        
+        # 前向传播
+        x = self.cba1(x)
+        x = self.dropout(x)
+        x = self.conv1(x)
+        x = self.lkr_mhsa(x)
+        x = self.cba3(x)
+        x = x.permute(0, 2, 3, 1)
+        x = self.mhsa1(x)
+        x = self.dropout(x)
+        x = x.permute(0, 3, 1, 2)
+        x = self.cba4(x)
+        x = x.permute(0, 2, 3, 1)
+        x = self.mhsa2(x)
+        x = self.dropout(x)
+        
+        # 特征提取
+        x = self.flatten(x)
+        shared = self.shared_fc(x)
+        
+        return self.validity(shared), \
+               self.angle_cls(shared), \
+               self.snr_reg(shared)
+
+class Discriminator(torch.nn.Module):
+    def __init__(self, num_angles=121):
+        super(Discriminator, self).__init__()
+        # 特征提取层
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(3, 32, 3, 1, 1),
+            nn.LeakyReLU(0.2),
+            nn.Conv2d(32, 128, 4, 2, 1),
+            nn.LeakyReLU(0.2),
+            nn.Conv2d(128, 256, 4, 2, 1),
+            nn.LeakyReLU(0.2),
+            nn.Flatten()
+        )
+
+        # 共享特征层（增加维度以适应多任务）
+        self.shared_fc = nn.Linear(256*8*8, 1024)
+        
+        # 真伪判别分支
+        self.validity = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.LeakyReLU(0.2),
+            nn.Linear(512, 1),
+            nn.Sigmoid()
+        )
+        
+        # 角度分类分支（增加层深度）
+        self.angle_cls = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, num_angles)
+        )
+        
+        # 信噪比回归分支（新增标准化层）
+        self.snr_reg = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Linear(512, 128),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+
+    def forward(self, x):
+        features = self.conv_layers(x)
+        shared = self.shared_fc(features)
+        
+        return self.validity(shared), \
+               self.angle_cls(shared), \
+               self.snr_reg(shared)
+
+          
+        
     
     def forward(self, x):
         return self.model(x)
@@ -312,7 +431,7 @@ class ModelGenerator(object):
         elif self.model_type.startswith("DeepCNN"):
             self.model = DeepCNN(N=system_model_params.N, grid_size=system_model_params.grid_size)
         elif self.model_type.startswith("GAN_Model"):
-            self.model = GAN_Model()
+            self.model = GAN_Model(num_angles=system_model_params.grid_size)
         elif self.model_type.startswith("My_transform_Model"):
             self.model = My_transform_Model(num_classes=system_model_params.grid_size, N=system_model_params.N)
         elif self.model_type.startswith("OffgridDOA"):
@@ -818,7 +937,7 @@ class DeepAugmentedMUSIC(nn.Module):
 #         self.BatchNorm = nn.BatchNorm2d(256)
 #         self.ReLU = nn.ReLU()
 #
-#         # 特征展开维度计算
+#         # 特征展平维度计算
 #         self.flatten_dim = 256 * (N - 5) * (N - 5)
 #
 #         # 方位估计塔
