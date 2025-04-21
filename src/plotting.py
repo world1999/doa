@@ -38,7 +38,7 @@ from scipy.signal import argrelextrema
 
 from src.methods import MUSIC, RootMUSIC, MVDR
 from src.system_model import SystemModelParams
-from src.utils import R2D
+from src.utils import R2D,device
 
 def plot_spectrum(system_model_params: SystemModelParams, predictions: np.ndarray, true_DOA: np.ndarray, system_model=None,
     spectrum: np.ndarray =None, roots: np.ndarray =None, algorithm:str ="music",
@@ -774,39 +774,50 @@ def initialize_figures():
             "comparison_key": {"fig": None,"ax" : None, "norm factor" : None}}
 
   return figures
-def detect_top_peaks(spectrum: np.ndarray, angles: np.ndarray, min_distance: float = 5, top_k: int = 2):
+def detect_top_peaks(spectrum: torch.Tensor, angles: torch.Tensor, min_distance: float = 5, top_k: int = 2):
     """
     识别谱图中的峰值，并确保相邻峰值至少间隔 `min_distance` 度，同时返回前 `top_k` 个最强峰值。
 
     参数：
-    - spectrum: np.ndarray，输入的谱图数据（功率或归一化谱）。
-    - angles: np.ndarray，对应的角度数组（与spectrum等长）。
+    - spectrum: torch.Tensor，输入的谱图数据（功率或归一化谱）。
+    - angles: torch.Tensor，对应的角度数组（与spectrum等长）。
     - min_distance: float，相邻峰之间的最小角度间隔（单位：度）。
     - top_k: int，返回最大的 `top_k` 个峰值。
 
     返回：
-    - selected_peaks: np.ndarray，最终筛选后的峰值索引。
-    - peak_angles: np.ndarray，筛选后峰值对应的角度。
+    - selected_peaks: torch.Tensor，最终筛选后的峰值索引。
+    - peak_angles: torch.Tensor，筛选后峰值对应的角度。
     """
-    # 找出所有局部最大值
-    peak_indices, _ = scipy.signal.find_peaks(spectrum)
-    peak_angles = angles[peak_indices]
-
-    # 按峰值强度排序（从大到小）
-    sorted_indices = np.argsort(spectrum[peak_indices])[::-1]
-    sorted_peaks = peak_indices[sorted_indices]
-    sorted_angles = peak_angles[sorted_indices]
-
-    # 筛选相邻至少相距 min_distance 的峰
+    # 使用torch.diff检测梯度变化点
+    diff = torch.diff(spectrum)
+    peak_indices = torch.argwhere((diff[:-1] > 0) & (diff[1:] < 0)) + 1
+    
+    # 获取峰值强度
+    peak_values = spectrum[peak_indices]
+    
+    # 创建掩码用于排除已选峰值附近的点
+    mask = torch.ones_like(peak_values, dtype=torch.bool)
     selected_peaks = []
-    for i, peak in enumerate(sorted_peaks):
-        peak_angle = sorted_angles[i]
-        # 仅当新峰与已选峰相距大于 min_distance 时才添加
-        if all(abs(peak_angle - angles[p]) > min_distance for p in selected_peaks):
-            selected_peaks.append(peak)
-        # 达到 top_k 个峰后退出
-        if len(selected_peaks) >= top_k:
+    selected_angles = []
+    
+    for _ in range(top_k):
+        if not torch.any(mask):
             break
-
-    # 返回最终峰值索引及其角度
-    return np.array(selected_peaks), angles[selected_peaks]
+            
+        # 在当前掩码下找到最强峰值
+        current_max_idx = torch.argmax(peak_values[mask])
+        current_peak = peak_indices[mask][current_max_idx]
+        current_angle = angles[current_peak]
+        
+        # 添加到结果
+        selected_peaks.append(current_peak)
+        selected_angles.append(current_angle)
+        
+        # 更新掩码，排除当前峰值附近的点
+        angle_diffs = torch.abs(angles[peak_indices] - current_angle)
+        mask = mask & (angle_diffs > min_distance)
+    
+    if len(selected_peaks) > 0:
+        return torch.stack(selected_peaks), torch.stack(selected_angles)
+    else:
+        return torch.tensor([]), torch.tensor([])

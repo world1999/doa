@@ -391,6 +391,52 @@ def train_gan(
     dt_string_for_save = now.strftime("%d_%m_%Y_%H_%M")
     print("date and time =", dt_string)
     # Train the model
+    model, cls_loss_list = train_gan_discriminator_model(system_model_params,
+        training_parameters, model_name=model_name, checkpoint_path=saving_path
+    )
+    # Save models best weights
+    torch.save(model.state_dict(), saving_path / Path(dt_string_for_save))
+    # Plot learning and validation loss curves
+    if plot_curves:
+        plot_gan_learning_curve(cls_loss_list)
+    return model,  cls_loss_list
+def train_gan1(
+    system_model_params: SystemModelParams,
+    training_parameters: TrainingParams,
+    model_name: str,
+    plot_curves: bool = True,
+    saving_path: Path = None,
+):
+    """
+    Wrapper function for training the model.
+
+    Args:
+    ----------
+    - training_params (TrainingParams): An instance of TrainingParams containing the training parameters.
+    - model_name (str): The name of the model.
+    - plot_curves (bool): Flag to indicate whether to plot learning and validation loss curves. Defaults to True.
+    - saving_path (Path): The directory to save the trained model.
+
+    Returns:
+    ----------
+    model: The trained model.
+    loss_train_list: List of training loss values.
+    loss_valid_list: List of validation loss values.
+
+    Raises:
+    ----------
+    Exception: If the model type is not defined.
+    Exception: If the optimizer type is not defined.
+    """
+    # Set the seed for all available random operations
+    set_unified_seed()
+    # Current date and time
+    print("\n----------------------\n")
+    now = datetime.now()
+    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+    dt_string_for_save = now.strftime("%d_%m_%Y_%H_%M")
+    print("date and time =", dt_string)
+    # Train the model
     model, adv_loss_list, cls_loss_list, snr_loss_list = train_gan_model(system_model_params,
         training_parameters, model_name=model_name, checkpoint_path=saving_path
     )
@@ -401,7 +447,7 @@ def train_gan(
         plot_gan_learning_curve(adv_loss_list, cls_loss_list, snr_loss_list)
     return model, adv_loss_list, cls_loss_list, snr_loss_list
 
-def train_gan_model(system_model_params: SystemModelParams, 
+def train_gan_discriminator_model(system_model_params: SystemModelParams, 
                  training_params: TrainingParams, 
                  model_name: str, 
                  checkpoint_path=None,
@@ -428,7 +474,295 @@ def train_gan_model(system_model_params: SystemModelParams,
     # Generator optimizer with lower learning rate (0.1x)
     gen_optimizer = optim.Adam(
         model.generator.parameters(), 
-        lr=training_params.learning_rate * 0.1,
+        lr=training_params.learning_rate * 1,
+        weight_decay=training_params.weight_decay
+    )
+    # Discriminator optimizer with original learning rate
+    disc_optimizer = training_params.optimizer
+    # Initialize losses
+    loss_train_list=[]
+    adv_loss_list = []
+    cls_loss_list = []
+    snr_loss_list = []
+    min_train_loss = np.inf
+    # Set initial time for start training
+    since = time.time()
+    print("\n---Start Training Stage ---\n")
+    # Run over all epochs
+    for epoch in range(training_params.epochs):
+        train_length = 0
+        overall_train_loss = 0.0
+        # Set model to train mode
+        model.train()
+        # 先检查GPU数量再决定设备分配
+        model = model.to(device)  # 将模型移到主设备
+        # 冻结判别器除分类外的两个分支
+        for param in model.discriminator.validity.parameters():
+            param.requires_grad = False
+        for param in model.discriminator.snr_reg.parameters():
+            param.requires_grad = False
+        if epoch < 100:
+            for data in tqdm(training_params.train_dataset):
+                _, high_snr_cov, angle_labels = data
+               
+                high_snr_cov = high_snr_cov.to(device)
+                angle_labels = angle_labels.to(device)
+                train_length += angle_labels.shape[0]  # 使用angle_labels的形状代替未定义的DOA
+                
+                # 训练判别器1次
+    
+                _, d_real_angle, _ = model.discriminator(high_snr_cov)
+                # d_real_angle = model.discriminator(high_snr_cov)
+                # 计算三支路损失
+                # 角度分类损失（真实样本和生成样本）
+                # cls_loss_real = nn.BCEWithLogitsLoss()(d_real_angle, angle_labels.float())
+                cls_loss_real = nn.BCELoss()(d_real_angle, angle_labels.float())
+                cls_loss = cls_loss_real
+                
+              
+                # Compute training loss
+                train_loss = cls_loss
+                
+                # Record individual losses
+                # adv_loss_list.append(0)
+                cls_loss_list.append(cls_loss.item())
+                # snr_loss_list.append(0)
+                
+                # Back-propagation stage
+                # # 冻结判别器除分类外的两个分支
+                # for param in model.discriminator.validity.parameters():
+                #     param.requires_grad = False
+                # for param in model.discriminator.snr_reg.parameters():
+                #     param.requires_grad = False
+
+                try:
+                    train_loss.backward()
+                except RuntimeError:
+                    print("linalg error")
+                # optimizer update
+                disc_optimizer.step()
+                # reset gradients
+                model.discriminator.zero_grad()
+                # add batch loss to overall epoch loss
+                if training_params.model_type.startswith(("My_transform_Model", "DeepCNN","GAN_Model")):
+                    # BCE is averaged
+                    overall_train_loss += train_loss.item() * len(data[0])
+                else:
+                    # RMSPE is summed
+                    overall_train_loss += train_loss.item()
+            # Average the epoch training loss
+            overall_train_loss = overall_train_loss / train_length
+            loss_train_list.append(overall_train_loss)
+            # Update schedular
+            training_params.schedular.step()
+            # Report results
+            print(
+                "epoch : {}/{}, Train loss = {:.6f}".format(
+                    epoch + 1, training_params.epochs, overall_train_loss
+                )
+            )
+            print("Adv loss: {:.6f}, Cls loss: {:.6f}, SNR loss: {:.6f}".format(
+                np.mean(adv_loss_list[-len(training_params.train_dataset):]),
+                np.mean(cls_loss_list[-len(training_params.train_dataset):]),
+                np.mean(snr_loss_list[-len(training_params.train_dataset):])
+            ))
+            print("lr {}".format(training_params.optimizer.param_groups[0]["lr"]))
+            
+            # Save best model weights based on train loss
+            if overall_train_loss < min_train_loss:
+                print(
+                    f"Train Loss Decreased({min_train_loss:.6f}--->{overall_train_loss:.6f}) \t Saving The Model"
+                )
+                min_train_loss = overall_train_loss
+                best_epoch = epoch
+                # Saving State Dict
+                best_model_wts = copy.deepcopy(model.state_dict())
+                torch.save(model.state_dict(), checkpoint_path / model_name)
+
+        time_elapsed = time.time() - since
+        print("\n--- Training summary ---")
+        print(
+            "Training complete in {:.0f}m {:.0f}s".format(
+                time_elapsed // 60, time_elapsed % 60
+            )
+        )
+        # # load best model weights
+        # model.load_state_dict(best_model_wts)
+        # torch.save(model.state_dict(), checkpoint_path / model_name)
+        since1 = time.time()
+        if epoch >=100:
+            # 冻结判别器所有参数
+            for param in model.discriminator.parameters():
+                param.requires_grad = False
+            # 解冻真伪判别和信噪比回归分支的参数
+            # for param in model.discriminator.validity.parameters():# 不解冻，只有一个分支在训练
+            #     param.requires_grad = True
+            # for param in model.discriminator.snr_reg.parameters():
+            #     param.requires_grad = True
+
+            for data in tqdm(training_params.train_dataset):
+                low_snr_list, high_snr_cov, angle_labels = data
+                low_snr_cov1 = low_snr_list[0][0].to(device)
+                # low_snr_cov2 = low_snr_list[1][0].to(device)
+                # low_snr_cov3 = low_snr_list[2][0].to(device)
+                # low_snr_cov4 = low_snr_list[3][0].to(device)
+                # low_snr_cov5 = low_snr_list[4][0].to(device)
+                high_snr_cov = high_snr_cov.to(device)
+                angle_labels = angle_labels.to(device)
+                train_length += angle_labels.shape[0]  # 使用angle_labels的形状代替未定义的DOA
+                
+        
+                # 训练生成器5次，每次使用不同的低信噪比数据
+                for low_snr_cov in [low_snr_cov1]:#, low_snr_cov2, low_snr_cov3, low_snr_cov4, low_snr_cov5
+                    gen_high_snr = model.generator(low_snr_cov)
+                    # 生成器损失 - Wasserstein损失
+                    _, d_fake_angle, _ = model.discriminator(gen_high_snr)
+                    # gen_loss = -d_fake_valid.mean()  # Wasserstein损失
+                    
+                    # 角度分类损失
+                    cls_loss = nn.BCELoss()(d_fake_angle, angle_labels.float())
+                    
+                    # SNR回归损失
+                    # snr_loss = nn.MSELoss()(d_fake_snr, torch.full_like(d_fake_snr, target_snr))
+                    
+                    # 总损失
+                    # total_loss = 0.5*gen_loss +10*cls_loss + 0.1*snr_loss
+                    total_loss =cls_loss
+                    total_loss.backward()
+                    gen_optimizer.step()
+                    model.generator.zero_grad()
+                
+                # # 训练判别器1次
+                # gen_high_snr = model.generator(low_snr_cov1)  # 使用第一个低信噪比数据生成样本
+                # d_real_valid, d_real_angle, d_real_snr = model.discriminator(high_snr_cov)
+                # d_fake_valid, d_fake_angle, d_fake_snr = model.discriminator(gen_high_snr.detach())# 使用detach()来防止梯度传播到生成器
+                
+                # # 计算三支路损失
+                # # Wasserstein损失
+                # adv_loss = d_fake_valid.mean() - d_real_valid.mean()
+                
+                # # 梯度惩罚
+                # alpha = torch.rand(high_snr_cov.size(0), 1, 1, 1, device=device)
+                # interpolates = (alpha * high_snr_cov + (1 - alpha) * gen_high_snr).requires_grad_(True)
+                # d_interpolates, _, _ = model.discriminator(interpolates)
+                # gradients = torch.autograd.grad(
+                #     outputs=d_interpolates,
+                #     inputs=interpolates,
+                #     grad_outputs=torch.ones_like(d_interpolates),
+                #     create_graph=True,
+                #     retain_graph=True,
+                #     only_inputs=True,
+                # )[0]
+                # gradients = gradients.view(gradients.size(0), -1)
+                # gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+                
+                # # 添加梯度惩罚
+                # adv_loss += 8 * gradient_penalty
+                
+                # # 角度分类损失（真实样本和生成样本）
+                # cls_loss_real = nn.BCEWithLogitsLoss()(d_real_angle, angle_labels.float())
+                # cls_loss_fake = nn.BCEWithLogitsLoss()(d_fake_angle, angle_labels)
+                # cls_loss = (cls_loss_real + cls_loss_fake) / 2
+                
+                # # SNR回归损失（真实样本和生成样本）
+                # snr_loss_real = nn.MSELoss()(d_real_snr, torch.full_like(d_real_snr, target_snr))
+                # snr_loss_fake = nn.MSELoss()(d_fake_snr, torch.full_like(d_fake_snr, target_snr))
+                # snr_loss = (snr_loss_real + snr_loss_fake) / 2
+                # # Compute training loss
+                # train_loss = 0.5*adv_loss + 10*cls_loss + 0.1*snr_loss
+                
+                # # Record individual losses
+                # adv_loss_list.append(adv_loss.item())
+                # cls_loss_list.append(cls_loss.item())
+                # snr_loss_list.append(snr_loss.item())
+                # # Back-propagation stage
+                # try:
+                #     train_loss.backward()
+                # except RuntimeError:
+                #     print("linalg error")
+                # # optimizer update
+                # disc_optimizer.step()
+                # # reset gradients
+                # model.discriminator.zero_grad()
+                # # add batch loss to overall epoch loss
+                if training_params.model_type.startswith(("My_transform_Model", "DeepCNN","GAN_Model")):
+                    # BCE is averaged
+                    overall_train_loss += total_loss.item() * len(data[0])
+                else:
+                    # RMSPE is summed
+                    overall_train_loss += total_loss.item()
+            # Average the epoch training loss
+            overall_train_loss = overall_train_loss / train_length
+            loss_train_list.append(overall_train_loss)
+            # Update schedular
+            training_params.schedular.step()
+            # Report results
+            print(
+                "epoch : {}/{}, Train loss = {:.6f}".format(
+                    epoch + 1, training_params.epochs, overall_train_loss
+                )
+            )
+            # print("Adv loss: {:.6f}, Cls loss: {:.6f}, SNR loss: {:.6f}".format(
+            #     np.mean(adv_loss_list[-len(training_params.train_dataset):]),
+            #     np.mean(cls_loss_list[-len(training_params.train_dataset):]),
+            #     np.mean(snr_loss_list[-len(training_params.train_dataset):])
+            # ))
+            # print("lr {}".format(training_params.optimizer.param_groups[0]["lr"]))
+            
+            # Save best model weights based on train loss
+            if overall_train_loss < min_train_loss:
+                print(
+                    f"Train Loss Decreased({min_train_loss:.6f}--->{overall_train_loss:.6f}) \t Saving The Model"
+                )
+                min_train_loss = overall_train_loss
+                best_epoch = epoch
+                # Saving State Dict
+                best_model_wts = copy.deepcopy(model.state_dict())
+                torch.save(model.state_dict(), checkpoint_path / model_name)
+
+        time_elapsed1 = time.time() - since1
+        print("\n--- Training summary ---")
+        print(
+            "Training complete in {:.0f}m {:.0f}s".format(
+                time_elapsed1 // 60, time_elapsed1 % 60
+            )
+        )
+        # load best model weights
+        model.load_state_dict(best_model_wts)
+        torch.save(model.state_dict(), checkpoint_path / model_name)
+    # return model, adv_loss_list, cls_loss_list, snr_loss_list
+    return model, cls_loss_list
+def train_gan_model(system_model_params: SystemModelParams, 
+                 training_params: TrainingParams, 
+                 model_name: str, 
+                 checkpoint_path=None,
+                 num_angles=180,
+                 target_snr=10.0):
+    """
+    Function for training the GAN model.
+
+    Args:
+    -----
+        training_params (TrainingParams): An instance of TrainingParams containing the training parameters.
+        model_name (str): The name of the model.
+        checkpoint_path (str): The path to save the checkpoint.
+
+    Returns:
+    --------
+        model: The trained model.
+        adv_loss_list (list): List of adversarial losses per batch.
+        cls_loss_list (list): List of classification losses per batch.
+        snr_loss_list (list): List of SNR losses per batch.
+    """
+    # Initialize model and optimizers
+    model = training_params.model
+    # device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")#从默认显卡0变成1
+
+    model = model.to(device)  # 将模型移到主设备
+    # Generator optimizer with lower learning rate (0.1x)
+    gen_optimizer = optim.Adam(
+        model.generator.parameters(), 
+        lr=training_params.learning_rate * 0.5,
         weight_decay=training_params.weight_decay
     )
     # Discriminator optimizer with original learning rate
@@ -450,33 +784,34 @@ def train_gan_model(system_model_params: SystemModelParams,
         model.train()
         # 先检查GPU数量再决定设备分配
 
-        model = model.to(device)  # 将模型移到主设备
+
         for data in tqdm(training_params.train_dataset):
             low_snr_list, high_snr_cov, angle_labels = data
             low_snr_cov1 = low_snr_list[0][0].to(device)
-            low_snr_cov2 = low_snr_list[1][0].to(device)
-            low_snr_cov3 = low_snr_list[2][0].to(device)
-            low_snr_cov4 = low_snr_list[3][0].to(device)
-            low_snr_cov5 = low_snr_list[4][0].to(device)
+            # low_snr_cov2 = low_snr_list[1][0].to(device)
+            # low_snr_cov3 = low_snr_list[2][0].to(device)
+            # low_snr_cov4 = low_snr_list[3][0].to(device)
+            # low_snr_cov5 = low_snr_list[4][0].to(device)
             high_snr_cov = high_snr_cov.to(device)
             angle_labels = angle_labels.to(device)
             train_length += angle_labels.shape[0]  # 使用angle_labels的形状代替未定义的DOA
             
             # 训练生成器5次，每次使用不同的低信噪比数据
-            for low_snr_cov in [low_snr_cov1, low_snr_cov2, low_snr_cov3, low_snr_cov4, low_snr_cov5]:
+            # for low_snr_cov in [low_snr_cov1, low_snr_cov2, low_snr_cov3, low_snr_cov4, low_snr_cov5]:
+            for low_snr_cov in [low_snr_cov1]:
                 gen_high_snr = model.generator(low_snr_cov)
                 # 生成器损失 - Wasserstein损失
                 d_fake_valid, d_fake_angle, d_fake_snr = model.discriminator(gen_high_snr)
                 gen_loss = -d_fake_valid.mean()  # Wasserstein损失
                 
                 # 角度分类损失
-                cls_loss = nn.CrossEntropyLoss()(d_fake_angle, angle_labels)
+                cls_loss = nn.BCELoss()(d_fake_angle, angle_labels.float())
                 
                 # SNR回归损失
                 snr_loss = nn.MSELoss()(d_fake_snr, torch.full_like(d_fake_snr, target_snr))
                 
                 # 总损失
-                total_loss = 0.5*gen_loss +50*cls_loss + 0.001*snr_loss
+                total_loss = 1*gen_loss +1*cls_loss + 1*snr_loss
                 total_loss.backward()
                 gen_optimizer.step()
                 model.generator.zero_grad()
@@ -504,21 +839,21 @@ def train_gan_model(system_model_params: SystemModelParams,
             )[0]
             gradients = gradients.view(gradients.size(0), -1)
             gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
-            
+
             # 添加梯度惩罚
-            adv_loss += 8 * gradient_penalty
+            adv_loss += 5* gradient_penalty
             
             # 角度分类损失（真实样本和生成样本）
-            cls_loss_real = nn.CrossEntropyLoss()(d_real_angle, angle_labels)
-            cls_loss_fake = nn.CrossEntropyLoss()(d_fake_angle, angle_labels)
+            cls_loss_real = nn.BCELoss()(d_real_angle, angle_labels.float())
+            cls_loss_fake = nn.BCELoss()(d_fake_angle, angle_labels.float())
             cls_loss = (cls_loss_real + cls_loss_fake) / 2
             
             # SNR回归损失（真实样本和生成样本）
             snr_loss_real = nn.MSELoss()(d_real_snr, torch.full_like(d_real_snr, target_snr))
             snr_loss_fake = nn.MSELoss()(d_fake_snr, torch.full_like(d_fake_snr, target_snr))
-            snr_loss = (snr_loss_real + snr_loss_fake) / 2
+            snr_loss = (2*snr_loss_real + 0*snr_loss_fake) / 2
             # Compute training loss
-            train_loss = 0.5*adv_loss + 50*cls_loss + 0.001*snr_loss
+            train_loss =1*adv_loss + 1*cls_loss + 1*snr_loss
             
             # Record individual losses
             adv_loss_list.append(adv_loss.item())
@@ -533,6 +868,7 @@ def train_gan_model(system_model_params: SystemModelParams,
             disc_optimizer.step()
             # reset gradients
             model.discriminator.zero_grad()
+            
             # add batch loss to overall epoch loss
             if training_params.model_type.startswith(("My_transform_Model", "DeepCNN","GAN_Model")):
                 # BCE is averaged
@@ -715,6 +1051,161 @@ def train_gan_model_pro(system_model_params: SystemModelParams, training_params:
     torch.save(model.state_dict(), checkpoint_path / model_name)
     return model, d_loss_list, g_loss_list
 
+
+def train_model(system_model_params: SystemModelParams, training_params: TrainingParams, model_name: str,
+                checkpoint_path=None):
+    """
+    Function for training the model.
+
+    Args:
+    -----
+        training_params (TrainingParams): An instance of TrainingParams containing the training parameters.
+        model_name (str): The name of the model.
+        checkpoint_path (str): The path to save the checkpoint.
+
+    Returns:
+    --------
+        model: The trained model.
+        loss_train_list (list): List of training losses per epoch.
+        loss_valid_list (list): List of validation losses per epoch.
+    """
+    # Initialize model and optimizer
+    model = training_params.model
+    optimizer = training_params.optimizer
+    # Initialize losses
+    loss_train_list = []
+    loss_valid_list = []
+    min_valid_loss = np.inf
+    # Set initial time for start training
+    since = time.time()
+    print("\n---Start Training Stage ---\n")
+    # Run over all epochs
+    for epoch in range(training_params.epochs):
+        train_length = 0
+        overall_train_loss = 0.0
+        # Set model to train mode
+        model.train()
+        model = model.to(device)
+        for data in tqdm(training_params.train_dataset):
+            Rx, DOA, W = data
+            Rx, DOA = data
+            train_length += DOA.shape[0]
+            # Cast observations and DoA to Variables
+            Rx = Variable(Rx, requires_grad=True).to(device)
+            DOA = Variable(DOA, requires_grad=True).to(device)
+            # W = Variable(W, requires_grad=True).to(device)
+            # Get model output
+            model_output = model(Rx)  #
+            if training_params.model_type.startswith("SubspaceNet"):
+                # Default - SubSpaceNet
+                DOA_predictions = model_output[0].float()
+            else:
+                # Deep Augmented MUSIC or DeepCNN or My_transform_Model
+                DOA_predictions = model_output
+            # Compute training loss
+            # class RMSELoss(nn.Module):
+            #     def __init__(self, eps=1e-6):
+            #         super().__init__()
+            #         self.mse = nn.MSELoss()
+            #         self.eps = eps  # 数值稳定项
+            #
+            #     def forward(self, pred, target):
+            #         return torch.sqrt(self.mse(pred, target) + self.eps)
+            if training_params.model_type.startswith(("My_transform_Model", "DeepCNN")):
+                angle_loss = training_params.criterion(
+                    DOA_predictions.float(), DOA.float()
+                )
+                # 初始化RMSE损失（需确保W存在且维度匹配）
+                # weight_rmse = RMSELoss()(weight_output.float(), W.float())
+                # 双损失加权融合
+                train_loss = angle_loss  # weight_rmse#angle_loss +
+                # else:
+            #     train_loss = training_params.criterion(DOA_predictions.float(), DOA.float())
+            # Back-propagation stage
+            try:
+                train_loss.backward()
+            except RuntimeError:
+                print("linalg error")
+            # optimizer update
+            optimizer.step()
+            # reset gradients
+            model.zero_grad()
+            # add batch loss to overall epoch loss
+            if training_params.model_type.startswith(("My_transform_Model", "DeepCNN")):
+                # BCE is averaged
+                overall_train_loss += train_loss.item() * len(data[0])
+                # overall_train_angle_loss = angle_loss.item() * len(data[0])
+                # overall_train_weight_loss = weight_rmse.item() * len(data[0])
+            # elif training_params.model_type.startswith("My_transform_Model"):
+            #     # BCE is averaged
+            #     overall_train_loss += train_loss.item() * len(data[0])
+            else:
+                # RMSPE is summed
+                overall_train_loss += train_loss.item()
+        # Average the epoch training loss
+        overall_train_loss = overall_train_loss / train_length
+        # overall_train_angle_loss= overall_train_angle_loss / train_length
+        # overall_train_weight_loss= overall_train_weight_loss / train_length
+        loss_train_list.append(overall_train_loss)
+        # Update schedular
+        training_params.schedular.step()
+        # Calculate evaluation loss
+        # Calculate evaluation loss
+        if training_params.model_type.startswith("My_transform_Model"):
+            valid_loss, _ = evaluate_transformer_model(
+                system_model_params,
+                model,
+                training_params.valid_dataset,
+                training_params.criterion,
+                model_type=training_params.model_type,
+            )
+        elif training_params.model_type.startswith("DeepCNN"):
+            valid_loss, _ = evaluate_dnn_model(
+                system_model_params,
+                model,
+                training_params.valid_dataset,
+                training_params.criterion,
+                model_type=training_params.model_type,
+            )
+        loss_valid_list.append(valid_loss)
+        # Report results
+        # print(
+        #     "epoch : {}/{}, Train loss = {:.6f},Train angle loss ={:.6f},Train weight loss ={:.6f}  Validation loss = {:.6f} ,valid angle loss ={:.6f},valid weight loss ={:.6f}  ".format(
+        #         epoch + 1, training_params.epochs, overall_train_loss,overall_train_angle_loss,overall_train_weight_loss, valid_loss,overall_angle_loss,overall_weight_loss
+        #     )
+        # )
+        print(
+            "epoch : {}/{}, Train loss = {:.6f}, Validation loss = {:.6f}   ".format(
+                epoch + 1, training_params.epochs, overall_train_loss, valid_loss
+            )
+        )
+        print("lr {}".format(training_params.optimizer.param_groups[0]["lr"]))
+        # Save best model weights for early stoppings
+        if min_valid_loss > valid_loss:
+            print(
+                f"Validation Loss Decreased({min_valid_loss:.6f}--->{valid_loss:.6f}) \t Saving The Model"
+            )
+            min_valid_loss = valid_loss
+            best_epoch = epoch
+            # Saving State Dict
+            best_model_wts = copy.deepcopy(model.state_dict())
+            torch.save(model.state_dict(), checkpoint_path / model_name)
+
+    time_elapsed = time.time() - since
+    print("\n--- Training summary ---")
+    print(
+        "Training complete in {:.0f}m {:.0f}s".format(
+            time_elapsed // 60, time_elapsed % 60
+        )
+    )
+    print(
+        "Minimal Validation loss: {:4f} at epoch {}".format(min_valid_loss, best_epoch)
+    )
+
+    # load best model weights
+    model.load_state_dict(best_model_wts)
+    torch.save(model.state_dict(), checkpoint_path / model_name)
+    return model, loss_train_list, loss_valid_list
 def plot_learning_curve(epoch_list, train_loss: list, validation_loss: list):
     """
     Plot the learning curve.
@@ -733,7 +1224,8 @@ def plot_learning_curve(epoch_list, train_loss: list, validation_loss: list):
     plt.legend(loc="best")
     plt.show()
 
-def plot_gan_learning_curve(adv_loss_list: list, cls_loss_list: list, snr_loss_list: list):
+# def plot_gan_learning_curve(adv_loss_list: list, cls_loss_list: list, snr_loss_list: list):
+def plot_gan_learning_curve(cls_loss_list: list):
     """
     Plot the GAN learning curve with three losses.
 
@@ -743,12 +1235,12 @@ def plot_gan_learning_curve(adv_loss_list: list, cls_loss_list: list, snr_loss_l
         cls_loss_list (list): Classification loss per epoch.
         snr_loss_list (list): SNR regression loss per epoch.
     """
-    epochs = range(len(adv_loss_list))
+    Iterations = range(len(cls_loss_list))
     plt.title("GAN Training Losses")
-    plt.plot(epochs, adv_loss_list, label="Adversarial Loss")
-    plt.plot(epochs, cls_loss_list, label="Classification Loss")
-    plt.plot(epochs, snr_loss_list, label="SNR Loss")
-    plt.xlabel("Epochs")
+    # plt.plot(epochs, adv_loss_list, label="Adversarial Loss")
+    plt.plot(Iterations, cls_loss_list, label="Classification Loss")
+    # plt.plot(epochs, snr_loss_list, label="SNR Loss")
+    plt.xlabel("Iterations")
     plt.ylabel("Loss")
     plt.legend()
     plt.show()

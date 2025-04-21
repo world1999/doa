@@ -57,7 +57,8 @@ class GAN_Model(torch.nn.Module):
         self.num_angles = num_angles
         self.generator = Generator()
         # self.discriminator = Discriminator(num_angles=self.num_angles)
-        self.discriminator = TransformerDiscriminator(num_angles=self.num_angles,N=32)   #判别器增加深度  模型和阵元数有关系
+        # self.discriminator = CNNDiscriminator(num_angles=self.num_angles,N=32)   #判别器增加深度  模型和阵元数有关系
+        self.discriminator=TransformerDiscriminator(num_angles=self.num_angles,N=32)
         
 
     def mutual_info_loss(self, validity_pred, angle_pred, snr_pred, true_labels):
@@ -70,7 +71,7 @@ class GAN_Model(torch.nn.Module):
         total_loss = 0.5*bce_loss + 0.3*angle_loss + 0.2*snr_loss
         return total_loss
 
-    def forward(self, z, angles):
+    def forward(self, z):
         # 生成阶段
         gen_samples = self.generator(z)
         # 判别阶段
@@ -160,7 +161,7 @@ class TransformerDiscriminator(torch.nn.Module):
             nn.Linear(1024, 512),
             nn.LeakyReLU(0.2),
             nn.Linear(512, 1),
-            nn.Sigmoid()
+            # nn.Sigmoid()
         )
         
         # 角度分类分支
@@ -169,7 +170,8 @@ class TransformerDiscriminator(torch.nn.Module):
             nn.ReLU(),
             nn.Linear(512, 256),
             nn.ReLU(),
-            nn.Linear(256, num_angles)
+            nn.Linear(256, num_angles),
+            nn.Sigmoid()
         )
         
         # 信噪比回归分支
@@ -1055,6 +1057,92 @@ class DeepCNN(nn.Module):
         X = self.fc4(X)  # [Batch size, grid_size]
         X = self.Sigmoid(X)
         return X
+
+class CNNDiscriminator(nn.Module):
+    """CNN-based discriminator with three output branches: validity, angle classification and SNR regression.
+    
+    Args:
+        N (int): Input dimension size.
+        num_angles (int): Number of angle classes.
+        
+    Attributes:
+        N (int): Input dimension size.
+        num_angles (int): Number of angle classes.
+        conv1 (nn.Conv2d): Convolutional layer 1.
+        conv2 (nn.Conv2d): Convolutional layer 2.
+        fc1 (nn.Linear): Shared feature layer.
+        validity (nn.Sequential): Validity branch.
+        angle_cls (nn.Sequential): Angle classification branch.
+        snr_reg (nn.Sequential): SNR regression branch.
+        DropOut (nn.Dropout): Dropout layer.
+        ReLU (nn.ReLU): ReLU activation function.
+    """
+    
+    def __init__(self, num_angles=121,N=32):
+        super(CNNDiscriminator, self).__init__()
+        self.N = N
+        self.num_angles = num_angles
+        
+        # Feature extraction layers
+        self.conv1 = nn.Conv2d(3, 256, kernel_size=3)
+        self.conv2 = nn.Conv2d(256, 256, kernel_size=2)
+        self.conv3 = nn.Conv2d(256, 256, kernel_size=2)
+        self.conv4 = nn.Conv2d(256, 256, kernel_size=2)
+        # Shared feature layer
+        self.fc1 = nn.Linear(256 * (self.N - 5) * (self.N - 5), 1024)
+        
+        # Validity branch
+        self.validity = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.LeakyReLU(0.2),
+            nn.Linear(512, 1),
+            nn.Sigmoid()#- Sigmoid：适合二元真伪判断（真实样本/生成样本）  - Softmax：适合多类别分类（当需要区分多个互斥类别时）
+        )
+        
+        # Angle classification branch
+        self.angle_cls = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, num_angles),
+            nn.Sigmoid()
+        )
+        
+        # SNR regression branch
+        self.snr_reg = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Linear(512, 128),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+        
+        self.DropOut = nn.Dropout(0.3)
+        self.ReLU = nn.ReLU()
+    
+    def forward(self, X):
+        # Feature extraction
+        # X = X.view(X.size(0), X.size(3), X.size(2), X.size(1))
+        X = self.ReLU(self.conv1(X))
+        X = self.ReLU(self.conv2(X))
+        X = self.ReLU(self.conv3(X))
+        X = self.ReLU(self.conv4(X))
+        
+        # Shared features
+        X = X.view(X.size(0), -1)
+        shared = self.DropOut(self.ReLU(self.fc1(X)))
+        
+        # Three branches
+        validity = self.validity(shared)
+        angle_pred = self.angle_cls(shared)
+        snr_pred = self.snr_reg(shared)
+        
+        return validity, angle_pred, snr_pred
 
 
 def root_music(Rz: torch.Tensor, M: int, batch_size: int):

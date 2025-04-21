@@ -79,7 +79,7 @@ def generate_combined_data(param_groups, base_params, model_config, samples_size
                         
                         # 为每个低信噪比样本生成5个不同的随机噪声版本
                         low_data_list = []
-                        for _ in range(5):
+                        for _ in range(1):
                             low_data, _, _ = create_dataset(
                                 system_model_params=param_groups[i]["system_model_params"],
                                 samples_size=samples_size,
@@ -95,7 +95,7 @@ def generate_combined_data(param_groups, base_params, model_config, samples_size
                         # 将匹配的low和high数据组成对存储，并保留角度标签
                         for low, high in zip(low_data_list[0], high_data):
                             # 存储七元组：(5个低信噪比样本, 高信噪比样本, 角度标签)
-                            combined_data.append(([ld[0] for ld in low_data_list], high[0], low[1]))
+                            combined_data.append(([ld[0] for ld in low_data_list], high[0], high[1]))
                         
                         del low_data_list
                         del high_data
@@ -210,7 +210,7 @@ def create_dataset(
     # if (model_type.startswith("OffgridDOA"))and phase.startswith("train"):
     #
     # Generate permutations for CNN-based model training datasets
-    if (model_type.startswith(("My_transform_Model", "DeepCNN","GAN")) and
+    if (model_type.startswith(("My_transform_Model", "DeepCNN","GAN_Model")) and
             phase.startswith("train")):
         # 参数设置（添加到系统参数中）
         total_samples = samples_size  # 自定义样本总数
@@ -370,6 +370,8 @@ def create_dataset(
                 X_model = create_rx_tensor(X)  # 4-channel for testing
             elif model_type.startswith("DeepCNN") and phase.startswith("test"):
                 X_model = create_cov_tensor(X)  # 3-channel for testing
+            elif model_type.startswith("GAN_Model") and phase.startswith("test"):
+                X_model = create_cov_tensor(X).permute(2, 0, 1)  # 3-channel for testing
             else:
                 X_model = X
 
@@ -510,11 +512,17 @@ def create_cov_tensor(X: torch.Tensor):
     # Rx = torch.cov(X.T)
     # Rx=X
     
-    # 归一化处理，将值缩放到[-1,1]范围
-    max_val = torch.max(torch.abs(Rx))
-    Rx = Rx / (max_val + 1e-6)  # 防止除以0
+    # 对每个通道分别进行归一化处理
+    real_part = torch.real(Rx)
+    imag_part = torch.imag(Rx)
+    angle_part = torch.angle(Rx)
     
-    Rx_tensor = torch.stack((torch.real(Rx), torch.imag(Rx), torch.angle(Rx)), 2)
+    # 计算每个通道的最大绝对值并归一化
+    real_part = real_part / (torch.max(torch.abs(real_part)) + 1e-6)
+    imag_part = imag_part / (torch.max(torch.abs(imag_part)) + 1e-6)
+    angle_part = angle_part / (torch.max(torch.abs(angle_part)) + 1e-6)
+    
+    Rx_tensor = torch.stack((real_part, imag_part, angle_part), 2)
     return Rx_tensor
 
 

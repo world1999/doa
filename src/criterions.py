@@ -110,9 +110,9 @@ class RMSPELoss(nn.Module):
         for iter in range(doa_predictions.shape[0]):
             # print(iter)
             rmspe_list = []
-            batch_predictions = doa_predictions[iter].to(device)
-            targets = doa[iter].to(device)
-            prediction_perm = permute_prediction(batch_predictions).to(device)
+            batch_predictions = doa_predictions[iter]#.to(device)
+            targets = doa[iter]#.to(device)
+            prediction_perm = permute_prediction(batch_predictions)#.to(device)
             for prediction in prediction_perm:
                 # Calculate error with modulo pi
                 error = (((prediction - targets) + (np.pi / 2)) % np.pi) - np.pi / 2
@@ -260,6 +260,12 @@ def set_criterions(criterion_name:str):
     elif criterion_name.startswith("mse"):
         criterion = MSPELoss()
         subspace_criterion = MSPE
+    elif criterion_name.startswith("crossentropy"):
+        criterion = nn.CrossEntropyLoss()
+        subspace_criterion = None
+    elif criterion_name.startswith("bce") or criterion_name.startswith("binarycrossentropy"):
+        criterion = nn.BCELoss()
+        subspace_criterion = RMSPE
     else:
         raise Exception(f"criterions.set_criterions: Criterion {criterion_name} is not defined")
     print(f"Loss measure = {criterion_name}")

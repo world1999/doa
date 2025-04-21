@@ -108,7 +108,7 @@ if __name__ == "__main__":
         .set_parameter("gap", 10)
     )
     system_model_params1= copy.deepcopy(base_params).set_parameter("snr", 0)  # 测试集生成
-    test_mode = [4211530]#训练模型用，同时设置多个训练轮数
+    test_mode = [4192225]#训练模型用，同时设置多个训练轮数
     grid_use = [121]
     # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
     low_snr_values_use = [[-5]]#条件输入
@@ -130,7 +130,7 @@ if __name__ == "__main__":
             .set_model(system_model_params)
         )
         # Define samples size
-        samples_size = 30000 # Overall dateset size
+        samples_size = 30000  # Overall dateset size
         train_test_ratio = 0.002  # training and testing datasets ratio
         # Sets simulation filename
         simulation_filename = get_simulation_filename(
@@ -215,7 +215,7 @@ if __name__ == "__main__":
                     .set_epochs(50)
                     .set_model(model=model_config)
                     .set_optimizer(optimizer="Adam", learning_rate=0.0001,
-                                   weight_decay=1e-7)  #learning_rate=0.00001, weight_decay=1e-9
+                                   weight_decay=1e-6)  #learning_rate=0.00001, weight_decay=1e-9
                     .set_training_dataset(combined_dataset)  #by j
                     .set_schedular(step_size=20, gamma=0.5)
                     .set_criterion()  #自动设置成nn.BCELoss()  非常关键，训练的时候要设置
@@ -225,11 +225,11 @@ if __name__ == "__main__":
               
                 simulation_parameters = (
                     TrainingParams()
-                    .set_batch_size(1024)
-                    .set_epochs(50)
+                    .set_batch_size(128)
+                    .set_epochs(100)
                     .set_model(model=model_config)
                      .set_optimizer(optimizer="Adam", learning_rate=0.0001,
-                                   weight_decay=1e-6)
+                                   weight_decay=1e-5)
                     .set_training_dataset(combined_dataset)  #by j
                     .set_schedular(step_size=30, gamma=0.5)
                     .set_criterion()
@@ -246,7 +246,7 @@ if __name__ == "__main__":
                 phase="training",
             )
             # Perform simulation training and evaluation stages
-            model,cls_loss_list = train_gan(
+            model, adv_loss_list, cls_loss_list, snr_loss_list = train_gan1(
                 system_model_params=base_params,
                 training_parameters=simulation_parameters,
                 model_name=simulation_filename,
