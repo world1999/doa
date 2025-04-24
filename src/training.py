@@ -48,7 +48,7 @@ from src.utils import *
 from src.criterions import *
 from src.system_model import SystemModel, SystemModelParams
 from src.models import SubspaceNet, DeepCNN, DeepAugmentedMUSIC, ModelGenerator,GAN_Model
-from src.evaluation import evaluate_dnn_model, evaluate_transformer_model
+from src.evaluation import evaluate_dnn_model, evaluate_transformer_model, evaluate_InTrain_gan_model,evaluate_InTrain1_gan_model
 
 
 class TrainingParams(object):
@@ -391,15 +391,15 @@ def train_gan(
     dt_string_for_save = now.strftime("%d_%m_%Y_%H_%M")
     print("date and time =", dt_string)
     # Train the model
-    model, cls_loss_list = train_gan_discriminator_model(system_model_params,
+    model, cls_loss_list,loss_valid_list = train_gan_discriminator_model(system_model_params,
         training_parameters, model_name=model_name, checkpoint_path=saving_path
     )
     # Save models best weights
     torch.save(model.state_dict(), saving_path / Path(dt_string_for_save))
     # Plot learning and validation loss curves
     if plot_curves:
-        plot_gan_learning_curve(cls_loss_list)
-    return model,  cls_loss_list
+        plot_gan_learning_curve(cls_loss_list,loss_valid_list)
+    return model, cls_loss_list
 def train_gan1(
     system_model_params: SystemModelParams,
     training_parameters: TrainingParams,
@@ -484,6 +484,8 @@ def train_gan_discriminator_model(system_model_params: SystemModelParams,
     adv_loss_list = []
     cls_loss_list = []
     snr_loss_list = []
+    loss_valid_list = []
+    min_valid_loss = np.inf
     min_train_loss = np.inf
     # Set initial time for start training
     since = time.time()
@@ -491,7 +493,9 @@ def train_gan_discriminator_model(system_model_params: SystemModelParams,
     # Run over all epochs
     for epoch in range(training_params.epochs):
         train_length = 0
+
         overall_train_loss = 0.0
+
         # Set model to train mode
         model.train()
         # 先检查GPU数量再决定设备分配
@@ -501,7 +505,7 @@ def train_gan_discriminator_model(system_model_params: SystemModelParams,
             param.requires_grad = False
         for param in model.discriminator.snr_reg.parameters():
             param.requires_grad = False
-        if epoch < 100:
+        if (epoch < 30) or (epoch > 30 and epoch % 2 == 1):
             for data in tqdm(training_params.train_dataset):
                 _, high_snr_cov, angle_labels = data
                
@@ -555,29 +559,80 @@ def train_gan_discriminator_model(system_model_params: SystemModelParams,
             loss_train_list.append(overall_train_loss)
             # Update schedular
             training_params.schedular.step()
+
+            # Calculate evaluation loss
+            if training_params.model_type.startswith("My_transform_Model"):
+                valid_loss, _ = evaluate_transformer_model(
+                    system_model_params,
+                    model,
+                    training_params.valid_dataset,
+                    training_params.criterion,
+                    model_type=training_params.model_type,
+                )
+            elif training_params.model_type.startswith("DeepCNN"):
+                valid_loss, _ = evaluate_dnn_model(
+                    system_model_params,
+                    model,
+                    training_params.valid_dataset,
+                    training_params.criterion,
+                    model_type=training_params.model_type,
+                )
+            elif training_params.model_type.startswith("GAN_Model"):
+                valid_loss, _ = evaluate_InTrain_gan_model(
+                    system_model_params,
+                    model,
+                    training_params.valid_dataset,
+                    training_params.criterion,
+                    model_type=training_params.model_type,
+                )
+            loss_valid_list.append(valid_loss)
             # Report results
+            # print(
+            #     "epoch : {}/{}, Train loss = {:.6f},Train angle loss ={:.6f},Train weight loss ={:.6f}  Validation loss = {:.6f} ,valid angle loss ={:.6f},valid weight loss ={:.6f}  ".format(
+            #         epoch + 1, training_params.epochs, overall_train_loss,overall_train_angle_loss,overall_train_weight_loss, valid_loss,overall_angle_loss,overall_weight_loss
+            #     )
+            # )
             print(
-                "epoch : {}/{}, Train loss = {:.6f}".format(
-                    epoch + 1, training_params.epochs, overall_train_loss
+                "epoch : {}/{}, Train loss = {:.6f}, Validation loss = {:.6f}   ".format(
+                    epoch + 1, training_params.epochs, overall_train_loss, valid_loss
                 )
             )
-            print("Adv loss: {:.6f}, Cls loss: {:.6f}, SNR loss: {:.6f}".format(
-                np.mean(adv_loss_list[-len(training_params.train_dataset):]),
-                np.mean(cls_loss_list[-len(training_params.train_dataset):]),
-                np.mean(snr_loss_list[-len(training_params.train_dataset):])
-            ))
             print("lr {}".format(training_params.optimizer.param_groups[0]["lr"]))
-            
-            # Save best model weights based on train loss
-            if overall_train_loss < min_train_loss:
+            # Save best model weights for early stoppings
+            if min_valid_loss > valid_loss:
                 print(
-                    f"Train Loss Decreased({min_train_loss:.6f}--->{overall_train_loss:.6f}) \t Saving The Model"
+                    f"Validation Loss Decreased({min_valid_loss:.6f}--->{valid_loss:.6f}) \t Saving The Model"
                 )
-                min_train_loss = overall_train_loss
+                min_valid_loss = valid_loss
                 best_epoch = epoch
                 # Saving State Dict
                 best_model_wts = copy.deepcopy(model.state_dict())
-                torch.save(model.state_dict(), checkpoint_path / model_name)
+
+
+
+            # # Report results
+            # print(
+            #     "epoch : {}/{}, Train loss = {:.6f}".format(
+            #         epoch + 1, training_params.epochs, overall_train_loss
+            #     )
+            # )
+            # print("Adv loss: {:.6f}, Cls loss: {:.6f}, SNR loss: {:.6f}".format(
+            #     np.mean(adv_loss_list[-len(training_params.train_dataset):]),
+            #     np.mean(cls_loss_list[-len(training_params.train_dataset):]),
+            #     np.mean(snr_loss_list[-len(training_params.train_dataset):])
+            # ))
+            # print("lr {}".format(training_params.optimizer.param_groups[0]["lr"]))
+            #
+            # # Save best model weights based on train loss
+            # if overall_train_loss < min_train_loss:
+            #     print(
+            #         f"Train Loss Decreased({min_train_loss:.6f}--->{overall_train_loss:.6f}) \t Saving The Model"
+            #     )
+            #     min_train_loss = overall_train_loss
+            #     best_epoch = epoch
+            #     # Saving State Dict
+            #     best_model_wts = copy.deepcopy(model.state_dict())
+            #     torch.save(model.state_dict(), checkpoint_path / model_name)
 
         time_elapsed = time.time() - since
         print("\n--- Training summary ---")
@@ -590,9 +645,10 @@ def train_gan_discriminator_model(system_model_params: SystemModelParams,
         # model.load_state_dict(best_model_wts)
         # torch.save(model.state_dict(), checkpoint_path / model_name)
         since1 = time.time()
-        if epoch >=100:
+        if epoch >=30 and epoch % 2 == 0:
             # 冻结判别器所有参数
             for param in model.discriminator.parameters():
+                
                 param.requires_grad = False
             # 解冻真伪判别和信噪比回归分支的参数
             # for param in model.discriminator.validity.parameters():# 不解冻，只有一个分支在训练
@@ -696,42 +752,112 @@ def train_gan_discriminator_model(system_model_params: SystemModelParams,
             loss_train_list.append(overall_train_loss)
             # Update schedular
             training_params.schedular.step()
+
+            # Calculate evaluation loss
+            if training_params.model_type.startswith("My_transform_Model"):
+                valid_loss, _ = evaluate_transformer_model(
+                    system_model_params,
+                    model,
+                    training_params.valid_dataset,
+                    training_params.criterion,
+                    model_type=training_params.model_type,
+                )
+            elif training_params.model_type.startswith("DeepCNN"):
+                valid_loss, _ = evaluate_dnn_model(
+                    system_model_params,
+                    model,
+                    training_params.valid_dataset,
+                    training_params.criterion,
+                    model_type=training_params.model_type,
+                )
+            elif training_params.model_type.startswith("GAN_Model"):
+                valid_loss, _ = evaluate_InTrain1_gan_model(
+                    system_model_params,
+                    model,
+                    training_params.valid_dataset,
+                    training_params.criterion,
+                    model_type=training_params.model_type,
+                )
+            loss_valid_list.append(valid_loss)
             # Report results
+            # print(
+            #     "epoch : {}/{}, Train loss = {:.6f},Train angle loss ={:.6f},Train weight loss ={:.6f}  Validation loss = {:.6f} ,valid angle loss ={:.6f},valid weight loss ={:.6f}  ".format(
+            #         epoch + 1, training_params.epochs, overall_train_loss,overall_train_angle_loss,overall_train_weight_loss, valid_loss,overall_angle_loss,overall_weight_loss
+            #     )
+            # )
             print(
-                "epoch : {}/{}, Train loss = {:.6f}".format(
-                    epoch + 1, training_params.epochs, overall_train_loss
+                "epoch : {}/{}, Train loss = {:.6f}, Validation loss = {:.6f}   ".format(
+                    epoch + 1, training_params.epochs, overall_train_loss, valid_loss
                 )
             )
-            # print("Adv loss: {:.6f}, Cls loss: {:.6f}, SNR loss: {:.6f}".format(
-            #     np.mean(adv_loss_list[-len(training_params.train_dataset):]),
-            #     np.mean(cls_loss_list[-len(training_params.train_dataset):]),
-            #     np.mean(snr_loss_list[-len(training_params.train_dataset):])
-            # ))
-            # print("lr {}".format(training_params.optimizer.param_groups[0]["lr"]))
-            
-            # Save best model weights based on train loss
-            if overall_train_loss < min_train_loss:
+            print("lr {}".format(training_params.optimizer.param_groups[0]["lr"]))
+            # Save best model weights for early stoppings
+            if min_valid_loss > valid_loss:
                 print(
-                    f"Train Loss Decreased({min_train_loss:.6f}--->{overall_train_loss:.6f}) \t Saving The Model"
+                    f"Validation Loss Decreased({min_valid_loss:.6f}--->{valid_loss:.6f}) \t Saving The Model"
                 )
-                min_train_loss = overall_train_loss
+                min_valid_loss = valid_loss
                 best_epoch = epoch
                 # Saving State Dict
                 best_model_wts = copy.deepcopy(model.state_dict())
-                torch.save(model.state_dict(), checkpoint_path / model_name)
+                # torch.save(model.state_dict(), checkpoint_path / model_name)
 
-        time_elapsed1 = time.time() - since1
+        time_elapsed = time.time() - since
         print("\n--- Training summary ---")
         print(
             "Training complete in {:.0f}m {:.0f}s".format(
-                time_elapsed1 // 60, time_elapsed1 % 60
+                time_elapsed // 60, time_elapsed % 60
             )
         )
+        print(
+            "Minimal Validation loss: {:4f} at epoch {}".format(min_valid_loss, best_epoch)
+        )
+
+        # # load best model weights
+        # model.load_state_dict(best_model_wts)
+        # torch.save(model.state_dict(), checkpoint_path / model_name)
+
+
+
+
+
+
+            # # Report results
+            # print(
+            #     "epoch : {}/{}, Train loss = {:.6f}".format(
+            #         epoch + 1, training_params.epochs, overall_train_loss
+            #     )
+            # )
+            # # print("Adv loss: {:.6f}, Cls loss: {:.6f}, SNR loss: {:.6f}".format(
+            # #     np.mean(adv_loss_list[-len(training_params.train_dataset):]),
+            # #     np.mean(cls_loss_list[-len(training_params.train_dataset):]),
+            # #     np.mean(snr_loss_list[-len(training_params.train_dataset):])
+            # # ))
+            # # print("lr {}".format(training_params.optimizer.param_groups[0]["lr"]))
+            #
+            # # Save best model weights based on train loss
+            # if overall_train_loss < min_train_loss:
+            #     print(
+            #         f"Train Loss Decreased({min_train_loss:.6f}--->{overall_train_loss:.6f}) \t Saving The Model"
+            #     )
+            #     min_train_loss = overall_train_loss
+            #     best_epoch = epoch
+            #     # Saving State Dict
+            #     best_model_wts = copy.deepcopy(model.state_dict())
+            #     torch.save(model.state_dict(), checkpoint_path / model_name)
+
+        # time_elapsed1 = time.time() - since1
+        # print("\n--- Training summary ---")
+        # print(
+        #     "Training complete in {:.0f}m {:.0f}s".format(
+        #         time_elapsed1 // 60, time_elapsed1 % 60
+        #     )
+        # )
         # load best model weights
         model.load_state_dict(best_model_wts)
         torch.save(model.state_dict(), checkpoint_path / model_name)
     # return model, adv_loss_list, cls_loss_list, snr_loss_list
-    return model, cls_loss_list
+    return model, loss_train_list,loss_valid_list
 def train_gan_model(system_model_params: SystemModelParams, 
                  training_params: TrainingParams, 
                  model_name: str, 
@@ -1225,7 +1351,7 @@ def plot_learning_curve(epoch_list, train_loss: list, validation_loss: list):
     plt.show()
 
 # def plot_gan_learning_curve(adv_loss_list: list, cls_loss_list: list, snr_loss_list: list):
-def plot_gan_learning_curve(cls_loss_list: list):
+def plot_gan_learning_curve(cls_loss_list: list,loss_valid_list: list):
     """
     Plot the GAN learning curve with three losses.
 
@@ -1239,7 +1365,7 @@ def plot_gan_learning_curve(cls_loss_list: list):
     plt.title("GAN Training Losses")
     # plt.plot(epochs, adv_loss_list, label="Adversarial Loss")
     plt.plot(Iterations, cls_loss_list, label="Classification Loss")
-    # plt.plot(epochs, snr_loss_list, label="SNR Loss")
+    plt.plot(Iterations, loss_valid_list, label="Valid Loss")
     plt.xlabel("Iterations")
     plt.ylabel("Loss")
     plt.legend()

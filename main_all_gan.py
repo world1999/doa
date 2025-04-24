@@ -108,13 +108,15 @@ if __name__ == "__main__":
         .set_parameter("gap", 10)
     )
     system_model_params1= copy.deepcopy(base_params).set_parameter("snr", 0)  # 测试集生成
-    test_mode = [4211530]#训练模型用，同时设置多个训练轮数
+    test_mode = [4242131]#训练模型用，同时设置多个训练轮数
     grid_use = [121]
     # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
-    low_snr_values_use = [[-5]]#条件输入
-    high_snr_values_use = [[10]]# 目标SNR
+    # low_snr_values_use = [[-10],[-10],[-10],[-5],[-5],[0],[0],[0],[5],[9]]#条件输入
+    # high_snr_values_use = [[-5],[0],[-9],[0],[5],[5],[10],[1],[6],[10]]# 目标SNR
+    low_snr_values_use = [[0]]  # 条件输入
+    high_snr_values_use = [[10]]  # 目标SNR
     for i, test_mode_snr in enumerate(test_mode):
-        base_params = copy.deepcopy(base_params).set_parameter("grid_size", grid_use[i])
+        base_params = copy.deepcopy(base_params).set_parameter("grid_size", grid_use[0])
         system_model_params = copy.deepcopy(base_params).set_parameter("snr",
                                                                        test_mode_snr)  ##多个数据集的训练过程日志和模型记录的参数 -20 只做记录用
         # 定义需要遍历的snr值列表
@@ -131,7 +133,7 @@ if __name__ == "__main__":
         )
         # Define samples size
         samples_size = 30000 # Overall dateset size
-        train_test_ratio = 0.002  # training and testing datasets ratio
+        train_test_ratio = 0.05  # training and testing datasets ratio
         # Sets simulation filename
         simulation_filename = get_simulation_filename(
             system_model_params=system_model_params, model_config=model_config
@@ -225,8 +227,8 @@ if __name__ == "__main__":
               
                 simulation_parameters = (
                     TrainingParams()
-                    .set_batch_size(1024)
-                    .set_epochs(50)
+                    .set_batch_size(64)
+                    .set_epochs(200)
                     .set_model(model=model_config)
                      .set_optimizer(optimizer="Adam", learning_rate=0.0001,
                                    weight_decay=1e-6)
