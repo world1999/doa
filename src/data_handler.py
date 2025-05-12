@@ -517,10 +517,10 @@ def create_cov_tensor(X: torch.Tensor):
     imag_part = torch.imag(Rx)
     angle_part = torch.angle(Rx)
     
-    # 计算每个通道的最大绝对值并归一化
-    real_part = real_part / (torch.max(torch.abs(real_part)) + 1e-6)
-    imag_part = imag_part / (torch.max(torch.abs(imag_part)) + 1e-6)
-    angle_part = angle_part / (torch.max(torch.abs(angle_part)) + 1e-6)
+    # # 计算每个通道的最大绝对值并归一化
+    # real_part = real_part / (torch.max(torch.abs(real_part)) + 1e-6)
+    # imag_part = imag_part / (torch.max(torch.abs(imag_part)) + 1e-6)
+    # angle_part = angle_part / (torch.max(torch.abs(angle_part)) + 1e-6)
     
     Rx_tensor = torch.stack((real_part, imag_part, angle_part), 2)
     return Rx_tensor

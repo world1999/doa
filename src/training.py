@@ -287,7 +287,7 @@ class TrainingParams(object):
         """
         # Divide into training and validation datasets
         train_dataset, valid_dataset = train_test_split(
-            train_dataset, test_size=0.05, shuffle=True
+            train_dataset, test_size=0.0005, shuffle=True
         )# 进行train / valid划分
         print("Training DataSet size", len(train_dataset))
         print("Validation DataSet size", len(valid_dataset))
@@ -437,15 +437,15 @@ def train_gan1(
     dt_string_for_save = now.strftime("%d_%m_%Y_%H_%M")
     print("date and time =", dt_string)
     # Train the model
-    model, adv_loss_list, cls_loss_list, snr_loss_list = train_gan_model(system_model_params,
+    model, loss_train_list, loss_valid_list = train_gan_model(system_model_params,
         training_parameters, model_name=model_name, checkpoint_path=saving_path
     )
     # Save models best weights
     torch.save(model.state_dict(), saving_path / Path(dt_string_for_save))
     # Plot learning and validation loss curves
     if plot_curves:
-        plot_gan_learning_curve(adv_loss_list, cls_loss_list, snr_loss_list)
-    return model, adv_loss_list, cls_loss_list, snr_loss_list
+        plot_gan_learning_curve( loss_train_list, loss_valid_list)
+    return model,  loss_train_list, loss_valid_list
 
 def train_gan_discriminator_model(system_model_params: SystemModelParams, 
                  training_params: TrainingParams, 
@@ -884,21 +884,31 @@ def train_gan_model(system_model_params: SystemModelParams,
     model = training_params.model
     # device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")#从默认显卡0变成1
 
+    criterions=training_params.criterion
     model = model.to(device)  # 将模型移到主设备
     # Generator optimizer with lower learning rate (0.1x)
     gen_optimizer = optim.Adam(
         model.generator.parameters(), 
-        lr=training_params.learning_rate * 0.5,
+        lr=training_params.learning_rate,
         weight_decay=training_params.weight_decay
     )
     # Discriminator optimizer with original learning rate
-    disc_optimizer = training_params.optimizer
+    # Discriminator optimizer with original learning rate
+    total_optimizer = training_params.optimizer
+
+    disc_optimizer = optim.Adam(
+        model.discriminator.parameters(),
+        lr=training_params.learning_rate,
+        weight_decay=training_params.weight_decay
+    )
     # Initialize losses
+    # train_loss_list=[]
     loss_train_list=[]
     adv_loss_list = []
     cls_loss_list = []
     snr_loss_list = []
-    min_train_loss = np.inf
+    loss_valid_list = []
+    min_valid_loss = np.inf
     # Set initial time for start training
     since = time.time()
     print("\n---Start Training Stage ---\n")
@@ -909,6 +919,12 @@ def train_gan_model(system_model_params: SystemModelParams,
         # Set model to train mode
         model.train()
         # 先检查GPU数量再决定设备分配
+        for param in model.discriminator.validity.parameters():  # 冻结所有分支
+            param.requires_grad = False
+        for param in model.discriminator.snr_reg.parameters():
+            param.requires_grad = False
+        for param in model.generator.parameters():
+            param.requires_grad = True
 
 
         for data in tqdm(training_params.train_dataset):
@@ -921,70 +937,51 @@ def train_gan_model(system_model_params: SystemModelParams,
             high_snr_cov = high_snr_cov.to(device)
             angle_labels = angle_labels.to(device)
             train_length += angle_labels.shape[0]  # 使用angle_labels的形状代替未定义的DOA
-            
-            # 训练生成器5次，每次使用不同的低信噪比数据
-            # for low_snr_cov in [low_snr_cov1, low_snr_cov2, low_snr_cov3, low_snr_cov4, low_snr_cov5]:
-            for low_snr_cov in [low_snr_cov1]:
-                gen_high_snr = model.generator(low_snr_cov)
-                # 生成器损失 - Wasserstein损失
-                d_fake_valid, d_fake_angle, d_fake_snr = model.discriminator(gen_high_snr)
-                gen_loss = -d_fake_valid.mean()  # Wasserstein损失
-                
-                # 角度分类损失
-                cls_loss = nn.BCELoss()(d_fake_angle, angle_labels.float())
-                
-                # SNR回归损失
-                snr_loss = nn.MSELoss()(d_fake_snr, torch.full_like(d_fake_snr, target_snr))
-                
-                # 总损失
-                total_loss = 1*gen_loss +1*cls_loss + 1*snr_loss
-                total_loss.backward()
-                gen_optimizer.step()
-                model.generator.zero_grad()
-            
+
             # 训练判别器1次
-            gen_high_snr = model.generator(low_snr_cov1)  # 使用第一个低信噪比数据生成样本
-            d_real_valid, d_real_angle, d_real_snr = model.discriminator(high_snr_cov)
-            d_fake_valid, d_fake_angle, d_fake_snr = model.discriminator(gen_high_snr.detach())# 使用detach()来防止梯度传播到生成器
-            
+            # gen_high_snr = model.generator(low_snr_cov1)  # 使用第一个低信噪比数据生成样本
+            _, d_real_angle, _ = model.discriminator(high_snr_cov)
+            # d_fake_valid, d_fake_angle, d_fake_snr = model.discriminator(gen_high_snr.detach())# 使用detach()来防止梯度传播到生成器
+
             # 计算三支路损失
             # Wasserstein损失
-            adv_loss = d_fake_valid.mean() - d_real_valid.mean()
-            
-            # 梯度惩罚
-            alpha = torch.rand(high_snr_cov.size(0), 1, 1, 1, device=device)
-            interpolates = (alpha * high_snr_cov + (1 - alpha) * gen_high_snr).requires_grad_(True)
-            d_interpolates, _, _ = model.discriminator(interpolates)
-            gradients = torch.autograd.grad(
-                outputs=d_interpolates,
-                inputs=interpolates,
-                grad_outputs=torch.ones_like(d_interpolates),
-                create_graph=True,
-                retain_graph=True,
-                only_inputs=True,
-            )[0]
-            gradients = gradients.view(gradients.size(0), -1)
-            gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+            # adv_loss = d_fake_valid.mean() - d_real_valid.mean()
 
-            # 添加梯度惩罚
-            adv_loss += 5* gradient_penalty
-            
+            # 梯度惩罚
+            # alpha = torch.rand(high_snr_cov.size(0), 1, 1, 1, device=device)
+            # interpolates = (alpha * high_snr_cov + (1 - alpha) * gen_high_snr).requires_grad_(True)
+            # d_interpolates, _, _ = model.discriminator(interpolates)
+            # gradients = torch.autograd.grad(
+            #     outputs=d_interpolates,
+            #     inputs=interpolates,
+            #     grad_outputs=torch.ones_like(d_interpolates),
+            #     create_graph=True,
+            #     retain_graph=True,
+            #     only_inputs=True,
+            # )[0]
+            # gradients = gradients.view(gradients.size(0), -1)
+            # gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+            #
+            # # 添加梯度惩罚
+            # adv_loss += 5* gradient_penalty
+
             # 角度分类损失（真实样本和生成样本）
             cls_loss_real = nn.BCELoss()(d_real_angle, angle_labels.float())
-            cls_loss_fake = nn.BCELoss()(d_fake_angle, angle_labels.float())
-            cls_loss = (cls_loss_real + cls_loss_fake) / 2
-            
+            # cls_loss_fake = nn.BCELoss()(d_fake_angle, angle_labels.float())
+            cls_loss = cls_loss_real
+
             # SNR回归损失（真实样本和生成样本）
-            snr_loss_real = nn.MSELoss()(d_real_snr, torch.full_like(d_real_snr, target_snr))
-            snr_loss_fake = nn.MSELoss()(d_fake_snr, torch.full_like(d_fake_snr, target_snr))
-            snr_loss = (2*snr_loss_real + 0*snr_loss_fake) / 2
+            # snr_loss_real = nn.MSELoss()(d_real_snr, torch.full_like(d_real_snr, target_snr))
+            # snr_loss_fake = nn.MSELoss()(d_fake_snr, torch.full_like(d_fake_snr, target_snr))
+            # snr_loss = (2*snr_loss_real + 0*snr_loss_fake) / 2
             # Compute training loss
-            train_loss =1*adv_loss + 1*cls_loss + 1*snr_loss
-            
+            train_loss = cls_loss
+
             # Record individual losses
-            adv_loss_list.append(adv_loss.item())
-            cls_loss_list.append(cls_loss.item())
-            snr_loss_list.append(snr_loss.item())
+            # adv_loss_list.append(0)
+            # cls_loss_list.append(cls_loss.item())
+            # snr_loss_list.append(0)
+            # train_loss_list.append(train_loss.item())
             # Back-propagation stage
             try:
                 train_loss.backward()
@@ -994,7 +991,45 @@ def train_gan_model(system_model_params: SystemModelParams,
             disc_optimizer.step()
             # reset gradients
             model.discriminator.zero_grad()
-            
+
+            # # 训练生成器1次，每次使用不同的低信噪比数据
+            # # for low_snr_cov in [low_snr_cov1, low_snr_cov2, low_snr_cov3, low_snr_cov4, low_snr_cov5]:
+            # for low_snr_cov in [low_snr_cov1]:
+            #     gen_high_snr = model.generator(low_snr_cov)
+            #     # 生成器损失 - Wasserstein损失
+            #     _, d_fake_angle,_ = model.discriminator(gen_high_snr)
+            #     # _, d_fake_angle, _ = model.discriminator(low_snr_cov)
+            #     # gen_loss = -d_fake_valid.mean()  # Wasserstein损失
+            #
+            #     # 角度分类损失
+            #     cls_loss = nn.BCELoss()(d_fake_angle, angle_labels.float())
+            #
+            #     # SNR回归损失
+            #     # snr_loss = nn.MSELoss()(d_fake_snr, torch.full_like(d_fake_snr, target_snr))
+            #
+            #     # 总损失
+            #     total_loss = cls_loss
+            #     total_loss.backward()
+            #
+            #     # # 先更新判别器
+                # disc_optimizer.step()
+            #     # # 再更新生成器
+            #     # gen_optimizer.step()
+            #     # # 统一清零梯度（建议顺序）
+            #     # model.discriminator.zero_grad()
+            #     # model.generator.zero_grad()
+            #
+            #     total_optimizer.step()
+            #     total_optimizer.zero_grad()
+            #
+            #     # gen_optimizer.step()
+            #     # model.generator.zero_grad()
+            #     # # optimizer update
+            #     # disc_optimizer.step()
+            #     # # reset gradients
+            #     # model.discriminator.zero_grad()
+
+
             # add batch loss to overall epoch loss
             if training_params.model_type.startswith(("My_transform_Model", "DeepCNN","GAN_Model")):
                 # BCE is averaged
@@ -1007,29 +1042,49 @@ def train_gan_model(system_model_params: SystemModelParams,
         loss_train_list.append(overall_train_loss)
         # Update schedular
         training_params.schedular.step()
-        # Report results
+
+        # Calculate evaluation loss
+        if training_params.model_type.startswith("My_transform_Model"):
+            valid_loss, _ = evaluate_transformer_model(
+                system_model_params,
+                model,
+                training_params.valid_dataset,
+                training_params.criterion,
+                model_type=training_params.model_type,
+            )
+        elif training_params.model_type.startswith("DeepCNN"):
+            valid_loss, _ = evaluate_dnn_model(
+                system_model_params,
+                model,
+                training_params.valid_dataset,
+                training_params.criterion,
+                model_type=training_params.model_type,
+            )
+        elif training_params.model_type.startswith("GAN_Model"):
+            valid_loss, _ = evaluate_InTrain_gan_model(
+                system_model_params,
+                model,
+                training_params.valid_dataset,
+                training_params.criterion,
+                model_type=training_params.model_type,
+            )
+        loss_valid_list.append(valid_loss)
         print(
-            "epoch : {}/{}, Train loss = {:.6f}".format(
-                epoch + 1, training_params.epochs, overall_train_loss
+            "epoch : {}/{}, Train loss = {:.6f}, Validation loss = {:.6f}   ".format(
+                epoch + 1, training_params.epochs, overall_train_loss, valid_loss
             )
         )
-        print("Adv loss: {:.6f}, Cls loss: {:.6f}, SNR loss: {:.6f}".format(
-            np.mean(adv_loss_list[-len(training_params.train_dataset):]),
-            np.mean(cls_loss_list[-len(training_params.train_dataset):]),
-            np.mean(snr_loss_list[-len(training_params.train_dataset):])
-        ))
         print("lr {}".format(training_params.optimizer.param_groups[0]["lr"]))
-        
-        # Save best model weights based on train loss
-        if overall_train_loss < min_train_loss:
+        # Save best model weights for early stoppings
+        if min_valid_loss > valid_loss:
             print(
-                f"Train Loss Decreased({min_train_loss:.6f}--->{overall_train_loss:.6f}) \t Saving The Model"
+                f"Validation Loss Decreased({min_valid_loss:.6f}--->{valid_loss:.6f}) \t Saving The Model"
             )
-            min_train_loss = overall_train_loss
+            min_valid_loss = valid_loss
             best_epoch = epoch
             # Saving State Dict
             best_model_wts = copy.deepcopy(model.state_dict())
-            torch.save(model.state_dict(), checkpoint_path / model_name)
+
 
     time_elapsed = time.time() - since
     print("\n--- Training summary ---")
@@ -1038,10 +1093,13 @@ def train_gan_model(system_model_params: SystemModelParams,
             time_elapsed // 60, time_elapsed % 60
         )
     )
+    print(
+        "Minimal Validation loss: {:4f} at epoch {}".format(min_valid_loss, best_epoch)
+    )
     # load best model weights
     model.load_state_dict(best_model_wts)
     torch.save(model.state_dict(), checkpoint_path / model_name)
-    return model, adv_loss_list, cls_loss_list, snr_loss_list
+    return model, loss_train_list, loss_valid_list
 def train_gan_model_pro(system_model_params: SystemModelParams, training_params: TrainingParams, model_name: str, checkpoint_path=None):
     """
     Function for training GAN model with WGAN-GP.
@@ -1364,9 +1422,10 @@ def plot_gan_learning_curve(cls_loss_list: list,loss_valid_list: list):
     Iterations = range(len(cls_loss_list))
     plt.title("GAN Training Losses")
     # plt.plot(epochs, adv_loss_list, label="Adversarial Loss")
-    plt.plot(Iterations, cls_loss_list, label="Classification Loss")
+    plt.plot(Iterations, cls_loss_list, label="train Loss")
     plt.plot(Iterations, loss_valid_list, label="Valid Loss")
-    plt.xlabel("Iterations")
+    # plt.xlabel("Iterations")
+    plt.xlabel("Epochs")
     plt.ylabel("Loss")
     plt.legend()
     plt.show()

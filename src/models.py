@@ -51,14 +51,127 @@ from src.utils import sum_of_diags_torch, find_roots_torch
 warnings.simplefilter("ignore")
 # Constants
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+class DiffusionModel(nn.Module):
+    """
+    条件扩散模型用于协方差矩阵生成
+    """
+    def __init__(self, num_steps=1000, beta_start=1e-4, beta_end=0.02):
+        super().__init__()
+        self.num_steps = num_steps
+        self.betas = torch.linspace(beta_start, beta_end, num_steps)
+        self.alphas = 1. - self.betas
+        self.alpha_bars = torch.cumprod(self.alphas, dim=0)
+        
+        # UNet结构
+        self.down1 = nn.Sequential(
+            nn.Conv2d(3, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU()
+        )
+        self.down2 = nn.Sequential(
+            nn.Conv2d(64, 128, 3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU()
+        )
+        self.mid = nn.Sequential(
+            nn.Conv2d(128, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU()
+        )
+        self.up1 = nn.Sequential(
+            nn.Conv2d(256, 128, 3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU()
+        )
+        self.up2 = nn.Sequential(
+            nn.Conv2d(128, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU()
+        )
+        self.out = nn.Conv2d(64, 3, 3, padding=1)
+        
+        # 时间嵌入
+        self.time_embed = nn.Sequential(
+            nn.Linear(1, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128)
+        )
+        
+        # 条件控制
+        self.cond_proj = nn.Linear(1, 128)
+
+    def forward(self, x, t, cond):
+        """
+        x: 输入协方差矩阵 [B, 3, H, W]
+        t: 时间步 [B, 1]
+        cond: 条件信息 [B, 1]
+        """
+        # 时间嵌入
+        t_emb = self.time_embed(t.float().unsqueeze(-1))
+        # 条件控制
+        cond_emb = self.cond_proj(cond.float().unsqueeze(-1))
+        
+        # 下采样
+        h1 = self.down1(x)
+        h2 = self.down2(h1)
+        # 中间层
+        h = self.mid(h2)
+        h = h + t_emb.view(-1, 128, 1, 1) + cond_emb.view(-1, 128, 1, 1)
+        # 上采样
+        h = self.up1(h)
+        h = h + h2
+        h = self.up2(h)
+        h = h + h1
+        return self.out(h)
+
+    def forward_diffusion(self, x0, t):
+        """前向扩散过程"""
+        noise = torch.randn_like(x0)
+        alpha_bar = self.alpha_bars[t].view(-1, 1, 1, 1)
+        xt = torch.sqrt(alpha_bar) * x0 + torch.sqrt(1 - alpha_bar) * noise
+        return xt, noise
+
+    def reverse_diffusion(self, xt, t, cond):
+        """反向去噪过程"""
+        return self(xt, t, cond)
+
+    def generate(self, cond, shape=(3, 32, 32)):
+        """从噪声生成协方差矩阵"""
+        with torch.no_grad():
+            # 从噪声开始
+            x = torch.randn(1, *shape).to(device)
+            
+            # 逐步去噪
+            for t in reversed(range(self.num_steps)):
+                t_tensor = torch.tensor([t], device=device)
+                cond_tensor = torch.tensor([cond], device=device)
+                
+                # 预测噪声
+                pred_noise = self.reverse_diffusion(x, t_tensor, cond_tensor)
+                
+                # 更新x
+                alpha = self.alphas[t]
+                alpha_bar = self.alpha_bars[t]
+                beta = self.betas[t]
+                
+                if t > 0:
+                    noise = torch.randn_like(x)
+                else:
+                    noise = 0
+                
+                x = (x - (1 - alpha)/torch.sqrt(1 - alpha_bar) * pred_noise) / torch.sqrt(alpha)
+                x = x + torch.sqrt(beta) * noise
+                
+            return x
 class GAN_Model(torch.nn.Module):
     def __init__(self, num_angles):
         super(GAN_Model, self).__init__()
         self.num_angles = num_angles
         self.generator = Generator()
         # self.discriminator = Discriminator(num_angles=self.num_angles)
-        # self.discriminator = CNNDiscriminator(num_angles=self.num_angles,N=32)   #判别器增加深度  模型和阵元数有关系
-        self.discriminator=TransformerDiscriminator(num_angles=self.num_angles,N=32)
+        self.discriminator = CNNDiscriminator(num_angles=self.num_angles,N=32)   #判别器增加深度  模型和阵元数有关系
+        # self.discriminator=TransformerDiscriminator(num_angles=self.num_angles,N=32)
         
 
     def mutual_info_loss(self, validity_pred, angle_pred, snr_pred, true_labels):
@@ -245,7 +358,8 @@ class Discriminator(torch.nn.Module):
             nn.ReLU(),
             nn.Linear(512, 256),
             nn.ReLU(),
-            nn.Linear(256, num_angles)
+            nn.Linear(256, num_angles),
+            nn.Sigmoid()
         )
         
         # 信噪比回归分支（新增标准化层）
@@ -270,8 +384,8 @@ class Discriminator(torch.nn.Module):
           
         
     
-    def forward(self, x):
-        return self.model(x)
+    # def forward(self, x):
+    #     return self.model(x)
 
 class OffgridDOA(nn.Module):
     def __init__(self, num_classes=241, N=16):

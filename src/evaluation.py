@@ -34,6 +34,7 @@ import torch.nn as nn
 from matplotlib import pyplot as plt
 from scipy.signal import argrelextrema
 from torch.nn import BCELoss
+from tqdm import tqdm
 
 from src.system_model import SystemModelParams
 from src.utils import device
@@ -265,11 +266,15 @@ def evaluate_InTrain_gan_model(
     model.eval()
 
     with torch.no_grad():
-        for i, data in enumerate(dataset):
+        # for i, data in enumerate(dataset):
+
+        for data in tqdm(dataset):
+            low_snr_list, high_snr_cov, angle_labels = data
+            low_snr_cov1 = low_snr_list[0][0].to(device)
             # if i <=11:
             #     continue
             # print(i)
-            _,X, DOA = data
+            X, DOA = low_snr_cov1,angle_labels
             batch_size = DOA.shape[0]
             X = X.to(device)
             DOA = DOA.to(device)
@@ -301,7 +306,7 @@ def evaluate_InTrain_gan_model(
                     # # time2=time.time()
                     # # duration=time2 - time1
                     # DOA_predictions = peak_angles * D2R
-                    DOA_predictions = torch.tensor(DOA_predictions, device=device).view(1, -1)
+                    DOA_predictions = torch.tensor(DOA_predictions, device=device).view(1, -1)# 从121到1*121
 
                 elif isinstance(criterion, (RMSPELoss, MSPELoss)):
                     DOA_predictions = model_output[0].cpu().numpy()

@@ -98,7 +98,7 @@ if __name__ == "__main__":
         SystemModelParams()
         .set_parameter("N", 32)
         .set_parameter("M", 2)
-        .set_parameter("T", 100)
+        .set_parameter("T", 200)
         .set_parameter("grid_size", 121)  # 添加网格点参数
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
@@ -108,11 +108,11 @@ if __name__ == "__main__":
         .set_parameter("gap", 10)
     )
     system_model_params1= copy.deepcopy(base_params).set_parameter("snr", 0)  # 测试集生成
-    test_mode = [4192225]#训练模型用，同时设置多个训练轮数
+    test_mode = [511525]#训练模型用，同时设置多个训练轮数
     grid_use = [121]
     # snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
-    low_snr_values_use = [[-5]]#条件输入
-    high_snr_values_use = [[10]]# 目标SNR
+    low_snr_values_use = [[5]]#条件输入
+    high_snr_values_use = [[5]]# 目标SNR
     for i, test_mode_snr in enumerate(test_mode):
         base_params = copy.deepcopy(base_params).set_parameter("grid_size", grid_use[i])
         system_model_params = copy.deepcopy(base_params).set_parameter("snr",
@@ -131,7 +131,7 @@ if __name__ == "__main__":
         )
         # Define samples size
         samples_size = 30000  # Overall dateset size
-        train_test_ratio = 0.002  # training and testing datasets ratio
+        train_test_ratio = 0.00002  # training and testing datasets ratio
         # Sets simulation filename
         simulation_filename = get_simulation_filename(
             system_model_params=system_model_params, model_config=model_config
@@ -226,9 +226,9 @@ if __name__ == "__main__":
                 simulation_parameters = (
                     TrainingParams()
                     .set_batch_size(128)
-                    .set_epochs(100)
+                    .set_epochs(50)
                     .set_model(model=model_config)
-                     .set_optimizer(optimizer="Adam", learning_rate=0.0001,
+                     .set_optimizer(optimizer="Adam", learning_rate=0.00001,
                                    weight_decay=1e-5)
                     .set_training_dataset(combined_dataset)  #by j
                     .set_schedular(step_size=30, gamma=0.5)
@@ -246,7 +246,7 @@ if __name__ == "__main__":
                 phase="training",
             )
             # Perform simulation training and evaluation stages
-            model, adv_loss_list, cls_loss_list, snr_loss_list = train_gan1(
+            model, loss_train_list, loss_valid_list = train_gan1(
                 system_model_params=base_params,
                 training_parameters=simulation_parameters,
                 model_name=simulation_filename,

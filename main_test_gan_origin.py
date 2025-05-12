@@ -88,7 +88,7 @@ if __name__ == "__main__":
         SystemModelParams()
         .set_parameter("N", 32)
         .set_parameter("M", 2)
-        .set_parameter("T", 100)
+        .set_parameter("T", 200)
         .set_parameter("grid_size", 121)  # 设置网格点数量
         .set_parameter("signal_type", "NarrowBand")
         .set_parameter("signal_nature", "non-coherent")
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     )
     # test_mode=[3161222,3161612,3161509,3161318]
     # grid_use=[31,61,121,241]
-    test_mode = [4211630]#目前模型可以直接预测，不需要配合原有的模型，集合了数据增强和原有的注意力模型 5final:4142251 -10：4151451
+    test_mode = [511425]#目前模型可以直接预测，不需要配合原有的模型，集合了数据增强和原有的注意力模型 5final:4142251 -10：4151451
     test_gan_mode=[420951]# 420904 只有第一层是归一化  420951 编码层是归一化的
     grid_use = [121]
     snr_values_use = [[-10, -9, -8, -7], [-10, -9, -8, -7, -6], [-10, -9, -8, -7, -3], [-10, -9, -8, -7, -6, -3]]
